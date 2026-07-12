@@ -1,5 +1,6 @@
 <h1 align="center">
-Zenonia 2 · PSVita Port
+  <img src="zenonia3_java/resources/res/drawable/ui_title_logo5.png" alt="Zenonia 3 Logo" width="350"><br>
+  Zenonia 3 · PSVita Port
 </h1>
 <p align="center">
   <a href="#setup-instructions-for-players">How to install</a> •
@@ -11,10 +12,7 @@ Zenonia 2 · PSVita Port
   <a href="#license">License</a>
 </p>
 
-ZENONIA® 2: The Lost Memories has been highly enhanced in every aspect compared to the original.
-Full character and control customization, four characters following individual epic storylines, three different modes, asynchronous online PvP feature and an extended world of ZENONIA guarantee greater enjoyment!
-
-This repository contains a loader of **the Xperia Play release of Zenonia 2**,
+This repository contains a loader of **the Android release of Zenonia 3**,
 based on the [Android SO Loader by TheFloW][gtasa]. The loader provides
 a tailored, minimalistic Android-like environment to run the official ARMv6
 game executable on the PS Vita.
@@ -22,7 +20,7 @@ game executable on the PS Vita.
 Disclaimer
 ----------------
 
-**ZENONIA 2** is a registered trademark of Gamevil The work
+**ZENONIA 3** is a registered trademark of Gamevil. The work
 presented in this repository is not "official" or produced or sanctioned by
 the owner(s) of the aforementioned trademark or any other registered trademark
 mentioned in this repository.
@@ -46,36 +44,30 @@ you experience any issues apart from described in the
 your firmware before asking for support.
 
 - Install or update [kubridge][kubridge] and [FdFix][fdfix] by copying
-`kubridge.skprx` to your taiHEN plugins folder
+`kubridge.skprx` and `fd_fix.skprx` to your taiHEN plugins folder
 (usually `ur0:tai`) and adding two entries to your `config.txt` under `*KERNEL`:
 
 ```
   *KERNEL
   ur0:tai/kubridge.skprx
-```
-
-```diff
-- ⚠️ Even if you had `kubridge.skprx` installed before, most likely you still
-- need to update it, since a new version of the plugin was released at the same
-- time as this port. kubridge v0.3 or newer is required to run the game!
+  ur0:tai/fd_fix.skprx
 ```
 
 - Make sure you have `libshacccg.suprx` in the `ur0:/data/` folder on your
 console. If you don't, use [ShaRKBR33D][shrkbrd] to get it quickly and easily.
 
-- <u>Legally</u> obtain your copy of Zenonia 2 for Xperia Play in a form
-of an `.apk` file. Make sure that your game is
-**v1.0.5** (this is the last one supported on Xperia Play).
+- <u>Legally</u> obtain your copy of Zenonia 3 in a form
+of an `.apk` file. Make sure that your game is the correct supported version.
 
     - If you have it installed on your phone, you can 
         [get all the required files directly from it][unpack-on-phone]
         or by using any APK extractor you can find on Google Play.
 
 - Open the `.apk` with any zip explorer (like [7-Zip](https://www.7-zip.org/))
-and extract all folders from the `.apk` into `ux0:data/zenonia2` on your Vita.
-Example of correct resulting path: `ux0:data/zenonia2/lib/armeabi/libzenonia2.so`
+and extract all folders from the `.apk` into `ux0:data/zenonia3` on your Vita.
+Example of correct resulting path: `ux0:data/zenonia3/lib/armeabi/libzenonia3.so`
 
-- Install `Zenonia2.vpk` (from [Releases][latest-release]).
+- Install `Zenonia3.vpk` (from [Releases][latest-release]).
 
 
 Controls
@@ -93,8 +85,6 @@ Controls
 |      ![trian]       |                                         |
 |      ![selec]       |                                         |
 |      ![start]       |                                         |
-| Accelerometer Tilt  |                                         |
-| Accelerometer Shake |                                         |
 
 FAQ
 ----------------
@@ -189,14 +179,9 @@ the MIT license. See the [LICENSE](LICENSE) file for details.
 [fdfix]: https://github.com/TheOfficialFloW/FdFix/releases/
 [unpack-on-phone]: https://stackoverflow.com/questions/11012976/how-do-i-get-the-apk-of-an-installed-app-without-root-access
 [shrkbrd]: https://github.com/Rinnegatamante/ShaRKBR33D/releases/latest
-[latest-release]: https://github.com/v-atamanenko/deadspace-vita/releases/latest
-[issue]: https://github.com/v-atamanenko/deadspace-vita/issues/new
-[dsmotion]: https://github.com/OperationNT414C/DSMotion/releases
-[ds4touch]: https://github.com/MERLev/ds4Touch/releases
+[latest-release]: https://github.com/USER/zenonia3-vita/releases/latest
+[issue]: https://github.com/USER/zenonia3-vita/issues/new
 
 [flow]: https://github.com/TheOfficialFloW/
 [rinne]: https://github.com/Rinnegatamante/
 [bythos]: https://github.com/bythos14/
-[cato]: https://github.com/CatoTheYounger97/
-[o13o]: https://github.com/once13one/
-[bounty]: https://app.bountysource.com/issues/96950715-dead-space-android-port-for-ps-vita

@@ -8,7 +8,14 @@
 *.apk
 *.zip
 /zenonia3/
-/zenonia3_java/
+/zenonia3_java/*
+!/zenonia3_java/resources/
+/zenonia3_java/resources/*
+!/zenonia3_java/resources/res/
+/zenonia3_java/resources/res/*
+!/zenonia3_java/resources/res/drawable/
+/zenonia3_java/resources/res/drawable/*
+!/zenonia3_java/resources/res/drawable/ui_title_logo5.png
 /decompiled_so/
 
 # Build artifacts & cache
