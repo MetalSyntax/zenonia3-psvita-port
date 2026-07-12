@@ -7,10 +7,10 @@ from ftplib import FTP, all_errors
 
 VITA_IP = "192.168.3.15"
 VITA_PORT = 1337
-LOCAL_VPK_PATH = "build/zenonia_3.vpk"
+LOCAL_VPK_PATH = "build/popclassic.vpk"
 VITA_DOWNLOADS_DIR = "/ux0:/downloads"
 VITA_DATA_DIR = "/ux0:/data"
-VITA_LOGS_DIR = "/ux0:/data/zenonia3/logs"
+VITA_LOGS_DIR = "/ux0:/data/popclassic/logs"
 
 def print_banner():
     print("====================================================")
@@ -147,42 +147,47 @@ def download_latest_debug_files():
         return
 
     # 1. Obtener último dump de ux0:/data
-    print("[*] Buscando el último crash dump (.dmp / psp2core) en ux0:/data...")
-    latest_dmp = None
-    latest_dmp_time = 0
-    try:
-        ftp.cwd(VITA_DATA_DIR)
-        # Usamos MLSD si está soportado para ver la fecha/hora de forma fiable, o LIST de lo contrario
+    descargar_dmp = input("¿Deseas descargar el último crash dump (DMP)? (s/n): ").strip().lower()
+    
+    if descargar_dmp in ['s', 'y', 'si', 'yes']:
+        print("[*] Buscando el último crash dump (.dmp / psp2core) en ux0:/data...")
+        latest_dmp = None
+        latest_dmp_time = 0
         try:
-            files = list(ftp.mlsd())
-            for name, facts in files:
-                if name.startswith("psp2core") or name.endswith(".dmp"):
-                    mtime = facts.get("modify", "0")
-                    if mtime > str(latest_dmp_time):
-                        latest_dmp_time = int(mtime) if mtime.isdigit() else mtime
-                        latest_dmp = name
-        except all_errors:
-            # Fallback simple a LIST si MLSD falla
-            file_list = []
-            ftp.retrlines("LIST", file_list.append)
-            # Para LIST, simplemente tomamos el último archivo que coincida en la lista (generalmente ordenados cronológica o alfabéticamente)
-            for line in file_list:
-                parts = line.split()
-                if len(parts) >= 9:
-                    name = " ".join(parts[8:])
+            ftp.cwd(VITA_DATA_DIR)
+            # Usamos MLSD si está soportado para ver la fecha/hora de forma fiable, o LIST de lo contrario
+            try:
+                files = list(ftp.mlsd())
+                for name, facts in files:
                     if name.startswith("psp2core") or name.endswith(".dmp"):
-                        latest_dmp = name
-        
-        if latest_dmp:
-            local_dmp_name = f"{latest_dmp}"
-            print(f"[+] Último dump detectado: '{latest_dmp}'. Descargando como '{local_dmp_name}'...")
-            with open(local_dmp_name, "wb") as f:
-                ftp.retrbinary(f"RETR {latest_dmp}", f.write)
-            print(f"[+] Descargado '{local_dmp_name}' en la carpeta actual.")
-        else:
-            print("[-] No se encontraron archivos de crash dump (*.dmp / psp2core*) en ux0:/data.")
-    except all_errors as e:
-        print(f"[-] Error al buscar o descargar dump: {e}")
+                        mtime = facts.get("modify", "0")
+                        if mtime > str(latest_dmp_time):
+                            latest_dmp_time = int(mtime) if mtime.isdigit() else mtime
+                            latest_dmp = name
+            except all_errors:
+                # Fallback simple a LIST si MLSD falla
+                file_list = []
+                ftp.retrlines("LIST", file_list.append)
+                # Para LIST, simplemente tomamos el último archivo que coincida en la lista (generalmente ordenados cronológica o alfabéticamente)
+                for line in file_list:
+                    parts = line.split()
+                    if len(parts) >= 9:
+                        name = " ".join(parts[8:])
+                        if name.startswith("psp2core") or name.endswith(".dmp"):
+                            latest_dmp = name
+            
+            if latest_dmp:
+                local_dmp_name = f"{latest_dmp}"
+                print(f"[+] Último dump detectado: '{latest_dmp}'. Descargando como '{local_dmp_name}'...")
+                with open(local_dmp_name, "wb") as f:
+                    ftp.retrbinary(f"RETR {latest_dmp}", f.write)
+                print(f"[+] Descargado '{local_dmp_name}' en la carpeta actual.")
+            else:
+                print("[-] No se encontraron archivos de crash dump (*.dmp / psp2core*) en ux0:/data.")
+        except all_errors as e:
+            print(f"[-] Error al buscar o descargar dump: {e}")
+    else:
+        print("[*] Omitiendo la descarga del crash dump.")
 
     # 2. Obtener último log de ux0:/data/zenonia3/logs
     print("[*] Buscando el último log de Zenonia 3 en ux0:/data/zenonia3/logs...")
@@ -224,16 +229,31 @@ def download_latest_debug_files():
         except:
             pass
 
+def run_clean_macos():
+    print("[*] Ejecutando clean_macos.sh...")
+    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clean_macos.sh")
+    if os.path.exists(script_path):
+        try:
+            subprocess.run(["bash", script_path], check=True)
+            print("[+] clean_macos.sh ejecutado exitosamente.")
+        except subprocess.CalledProcessError as e:
+            print(f"[-] Error al ejecutar clean_macos.sh: {e}")
+        except Exception as e:
+            print(f"[-] Ocurrió un error inesperado: {e}")
+    else:
+        print(f"[-] Error: No se encontró el script en '{script_path}'.")
+
 def main():
     while True:
         print_banner()
         print("1. Subir VPK compilado a la PS Vita (ux0:downloads/)")
         print("2. Descargar el último dump (.dmp) y el último log (.txt) a la carpeta actual")
         print("3. Desconectar Proton VPN ahora mismo")
-        print("4. Salir")
+        print("4. Ejecutar clean_macos.sh (limpiar archivos ocultos de macOS)")
+        print("5. Salir")
         print("====================================================")
         try:
-            opcion = input("Elige una opción (1-4): ").strip()
+            opcion = input("Elige una opción (1-5): ").strip()
             print()
             if opcion == "1":
                 upload_vpk()
@@ -242,6 +262,8 @@ def main():
             elif opcion == "3":
                 disconnect_proton_vpn()
             elif opcion == "4":
+                run_clean_macos()
+            elif opcion == "5":
                 print("¡Hasta luego!")
                 break
             else:
