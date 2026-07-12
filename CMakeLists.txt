@@ -154,3 +154,15 @@ vita_create_vpk(${PROJECT_NAME}.vpk ${VITA_TITLEID} ${PROJECT_NAME}.self
   FILE zenonia3/assets/html/about.html html/about.html
   FILE zenonia3/assets/html/help_eng.html html/help_eng.html
 )
+
+## VPK seguro (libre de distribucion, sin assets con copyright)
+vita_create_vpk(${PROJECT_NAME}_safe_dist.vpk ${VITA_TITLEID} ${PROJECT_NAME}.self
+  VERSION ${VITA_VERSION}
+  NAME ${VITA_APP_NAME}
+  FILE sce_sys/icon0.png sce_sys/icon0.png
+  FILE sce_sys/pic0.png sce_sys/pic0.png
+  FILE sce_sys/livearea/contents/bg0.png sce_sys/livearea/contents/bg0.png
+  FILE sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
+  FILE sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
+  FILE font.ttf font.ttf
+)

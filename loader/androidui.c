@@ -108,8 +108,13 @@ static htmlview *g_help_title = NULL;
 static int androidui_load_one(androidui_tex *t) {
     FILE *f = fopen(t->rgba_path, "rb");
     if (!f) {
-        game_log("[AndroidUI] %s no encontrado (VPK sin reconstruir con tools/build_android_ui_assets.py?)\n", t->rgba_path);
-        return 0;
+        char fallback_path[256];
+        snprintf(fallback_path, sizeof(fallback_path), "ux0:data/zenonia3/%s", t->rgba_path + 5);
+        f = fopen(fallback_path, "rb");
+        if (!f) {
+            game_log("[AndroidUI] %s (ni en ux0) no encontrado\n", t->rgba_path);
+            return 0;
+        }
     }
     uint32_t header[2];
     if (fread(header, sizeof(uint32_t), 2, f) != 2) {

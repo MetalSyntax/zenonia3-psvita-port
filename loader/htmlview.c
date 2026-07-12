@@ -133,8 +133,12 @@ htmlview *htmlview_load(const char *name, float panel_w_px, float font_px) {
     snprintf(path, sizeof(path), "app0:html/%s.html", name);
     FILE *f = fopen(path, "rb");
     if (!f) {
-        game_log("[HtmlView] %s no encontrado\n", path);
-        return NULL;
+        snprintf(path, sizeof(path), "ux0:data/zenonia3/html/%s.html", name);
+        f = fopen(path, "rb");
+        if (!f) {
+            game_log("[HtmlView] %s no encontrado (ni en app0 ni ux0)\n", name);
+            return NULL;
+        }
     }
     char *raw = malloc(HTML_RAW_CAP);
     size_t raw_len = raw ? fread(raw, 1, HTML_RAW_CAP - 1, f) : 0;
