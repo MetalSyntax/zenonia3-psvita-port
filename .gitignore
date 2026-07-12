@@ -1,0 +1,41 @@
+# macOS metadata
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Android APKs, ZIP files, and original assets/libraries (DMCA prevention)
+*.apk
+*.zip
+/zenonia3/
+/zenonia3_java/
+/decompiled_so/
+
+# Build artifacts & cache
+/CMakeCache.txt
+/CMakeFiles/
+/Makefile
+/cmake_install.cmake
+/build/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# Real-hardware debugging artifacts (crash dumps, logs bajados por FTP)
+/logs/
+log_*.txt
+*.psp2dmp
+
+# Imagenes fuente de LiveArea sin adaptar a Vita (quedan las de sce_sys/)
+*.jpg
+*.jpeg
+Zenonia3.png
+Gemini_Generated_Image_*.png
+ux0_data
+androidui
+# Exclude copyrighted files
+lib/
+*.so
+font.ttf
