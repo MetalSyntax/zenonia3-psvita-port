@@ -75,16 +75,14 @@ Controls
 
 |       Button        | Action                                  |
 |:-------------------:|:----------------------------------------|
-| ![joysl] / ![joysr] | Move                                    |
-| ![trigl] / ![trigr] |                                         |
-|      ![dpadh]       |                                         |
-|      ![dpadv]       |                                         |
-|      ![cross]       |                                         |
-|      ![circl]       |                                         |
-|      ![squar]       |                                         |
-|      ![trian]       |                                         |
-|      ![selec]       |                                         |
-|      ![start]       |                                         |
+|      ![dpadh]       | Move Left / Right                       |
+|      ![dpadv]       | Move Up / Down                          |
+|      ![cross]       | Action / Attack / OK                    |
+|      ![circl]       | Back / Cancel / Menu                    |
+|      ![squar]       | Map / Quick Item                        |
+|      ![trian]       | Skip / Special                          |
+|      ![trigl]       | Save                                    |
+| ![start] + ![selec] | Quit Game                               |
 
 FAQ
 ----------------
@@ -109,7 +107,8 @@ to help you.
 Known Issues
 ----------------
 
-N/A
+- **Invisible Text**: In-game text and UI text are currently invisible. The font rendering engine (GFA stubs) requires a custom bitmap/TrueType implementation that is still pending.
+- **Menu I/O Load**: The menu re-reads certain assets (like `Title.pzx`) from the disk continuously on input events, which might cause slight loading delays.
 
 Build Instructions (For Developers)
 ----------------
