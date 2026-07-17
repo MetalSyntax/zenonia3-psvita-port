@@ -13,9 +13,12 @@
  * DrawTeamLogo, out_ghidra.c:105397/105434), sin el arte real encima.
  *
  * Solucion: replicar esos overlays a mano con texturas GL, usando los PNG
- * reales del APK (variantes "globales"/en ingles -- no las _kr/_jp/_ch) ya
- * convertidos a RGBA8888 crudo por tools/build_android_ui_assets.py y
- * empaquetados en el VPK (ver CMakeLists.txt, mismo mecanismo que font.ttf).
+ * reales del APK (variantes "globales"/en ingles -- no las _kr/_jp/_ch)
+ * empaquetados TAL CUAL en el VPK bajo drawable/ (ver CMakeLists.txt) y
+ * decodificados en runtime con stb_image (lib/stb/stb_image.h, mismo
+ * mecanismo de vendoring que stb_truetype para font.c) -- no hace falta
+ * ningun paso de conversion previo, el port solo necesita los PNG reales
+ * del APK (zenonia3/res/drawable/).
  *
  * Posiciones: NO son inventadas -- salen de leer el codigo Java real
  * (com/gamevil/nexus2/Natives.java, showMenuItemComponent()) que calcula los
@@ -43,34 +46,38 @@
 
 #include <vitaGL.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include "../lib/stb/stb_image.h"
+
 #include "androidui.h"
 #include "htmlview.h"
 
 extern void game_log(const char *fmt, ...);
 
 typedef struct {
-    const char *rgba_path; // app0:androidui/<nombre>.rgba
+    const char *png_path; // app0:drawable/<nombre>.png
     GLuint tex;
     int w, h;
 } androidui_tex;
 
-static androidui_tex g_tex_logo        = { "app0:androidui/ui_logo_gamevil.rgba" };
-static androidui_tex g_tex_title_bg    = { "app0:androidui/ui_title_bg_nate.rgba" };
-static androidui_tex g_tex_title_logo5 = { "app0:androidui/ui_title_logo5.rgba" };
-static androidui_tex g_tex_menu_back0  = { "app0:androidui/ui_menu_back0.rgba" };
-static androidui_tex g_tex_menu_back1  = { "app0:androidui/ui_menu_back1.rgba" };
-static androidui_tex g_tex_btn_newgame   = { "app0:androidui/ui_menu_newgame.rgba" };
-static androidui_tex g_tex_btn_continue  = { "app0:androidui/ui_menu_continue.rgba" };
-static androidui_tex g_tex_btn_options   = { "app0:androidui/ui_menu_options.rgba" };
-static androidui_tex g_tex_btn_help      = { "app0:androidui/ui_menu_help.rgba" };
-static androidui_tex g_tex_btn_about     = { "app0:androidui/ui_menu_about.rgba" };
-static androidui_tex g_tex_btn_community = { "app0:androidui/ui_menu_community.rgba" };
-static androidui_tex g_tex_about_bg      = { "app0:androidui/ui_about_bg.rgba" };
-static androidui_tex g_tex_help_bg       = { "app0:androidui/ui_help_bg.rgba" };
-static androidui_tex g_tex_backbtn       = { "app0:androidui/ui_menu_back.rgba" };
-static androidui_tex g_tex_reply_bg      = { "app0:androidui/reply_page_back_e.rgba" };
-static androidui_tex g_tex_btn_write     = { "app0:androidui/button_write_01_global.rgba" };
-static androidui_tex g_tex_btn_later     = { "app0:androidui/button_later_01_global.rgba" };
+static androidui_tex g_tex_logo        = { "app0:drawable/ui_logo_gamevil.png" };
+static androidui_tex g_tex_title_bg    = { "app0:drawable/ui_title_bg_nate.png" };
+static androidui_tex g_tex_title_logo5 = { "app0:drawable/ui_title_logo5.png" };
+static androidui_tex g_tex_menu_back0  = { "app0:drawable/ui_menu_back0.png" };
+static androidui_tex g_tex_menu_back1  = { "app0:drawable/ui_menu_back1.png" };
+static androidui_tex g_tex_btn_newgame   = { "app0:drawable/ui_menu_newgame.png" };
+static androidui_tex g_tex_btn_continue  = { "app0:drawable/ui_menu_continue.png" };
+static androidui_tex g_tex_btn_options   = { "app0:drawable/ui_menu_options.png" };
+static androidui_tex g_tex_btn_help      = { "app0:drawable/ui_menu_help.png" };
+static androidui_tex g_tex_btn_about     = { "app0:drawable/ui_menu_about.png" };
+static androidui_tex g_tex_btn_community = { "app0:drawable/ui_menu_community.png" };
+static androidui_tex g_tex_about_bg      = { "app0:drawable/ui_about_bg.png" };
+static androidui_tex g_tex_help_bg       = { "app0:drawable/ui_help_bg.png" };
+static androidui_tex g_tex_backbtn       = { "app0:drawable/ui_menu_back.png" };
+static androidui_tex g_tex_reply_bg      = { "app0:drawable/reply_page_back_e.png" };
+static androidui_tex g_tex_btn_write     = { "app0:drawable/button_write_01_global.png" };
+static androidui_tex g_tex_btn_later     = { "app0:drawable/button_later_01_global.png" };
 
 // Panel de texto de ABOUT/HELP: el rect de Android para
 // aboutWebView/helpWebView (leftMargin=1/400, topMargin=5/240, width=300/400,
@@ -106,32 +113,30 @@ static htmlview *g_help_text = NULL;
 static htmlview *g_help_title = NULL;
 
 static int androidui_load_one(androidui_tex *t) {
-    FILE *f = fopen(t->rgba_path, "rb");
-    if (!f) {
-        char fallback_path[256];
-        snprintf(fallback_path, sizeof(fallback_path), "ux0:data/zenonia3/%s", t->rgba_path + 5);
+    // Igual que el fallback ya existente en htmlview_load(): primero el PNG
+    // empaquetado en el VPK (app0:), y si no esta (VPK "seguro" sin assets
+    // con copyright, ver zenonia_3_safe_dist.vpk) el mismo archivo subido a
+    // mano por FTP a ux0:data/zenonia3/.
+    char fallback_path[256];
+    const char *path = t->png_path;
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        fclose(f);
+    } else {
+        snprintf(fallback_path, sizeof(fallback_path), "ux0:data/zenonia3/%s", t->png_path + 5);
         f = fopen(fallback_path, "rb");
         if (!f) {
-            game_log("[AndroidUI] %s (ni en ux0) no encontrado\n", t->rgba_path);
+            game_log("[AndroidUI] %s (ni en ux0) no encontrado\n", t->png_path);
             return 0;
         }
-    }
-    uint32_t header[2];
-    if (fread(header, sizeof(uint32_t), 2, f) != 2) {
-        game_log("[AndroidUI] %s: header invalido\n", t->rgba_path);
         fclose(f);
-        return 0;
+        path = fallback_path;
     }
-    t->w = (int) header[0];
-    t->h = (int) header[1];
-    size_t n = (size_t) t->w * (size_t) t->h * 4;
-    void *pixels = malloc(n);
-    if (!pixels) { fclose(f); return 0; }
-    size_t got = fread(pixels, 1, n, f);
-    fclose(f);
-    if (got != n) {
-        game_log("[AndroidUI] %s: %zu/%zu bytes leidos, se descarta\n", t->rgba_path, got, n);
-        free(pixels);
+
+    int channels;
+    unsigned char *pixels = stbi_load(path, &t->w, &t->h, &channels, 4);
+    if (!pixels) {
+        game_log("[AndroidUI] %s: fallo al decodificar PNG (%s)\n", path, stbi_failure_reason());
         return 0;
     }
 
@@ -140,9 +145,9 @@ static int androidui_load_one(androidui_tex *t) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, t->w, t->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    free(pixels);
+    stbi_image_free(pixels);
 
-    game_log("[AndroidUI] cargado %s (%dx%d) -> tex=%u\n", t->rgba_path, t->w, t->h, (unsigned int) t->tex);
+    game_log("[AndroidUI] cargado %s (%dx%d) -> tex=%u\n", path, t->w, t->h, (unsigned int) t->tex);
     return 1;
 }
 

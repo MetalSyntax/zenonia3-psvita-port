@@ -7,10 +7,36 @@ from ftplib import FTP, all_errors
 
 VITA_IP = "192.168.3.15"
 VITA_PORT = 1337
-LOCAL_VPK_PATH = "build/popclassic.vpk"
+LOCAL_VPK_PATH = "build/zenonia_3.vpk"
 VITA_DOWNLOADS_DIR = "/ux0:/downloads"
 VITA_DATA_DIR = "/ux0:/data"
-VITA_LOGS_DIR = "/ux0:/data/popclassic/logs"
+VITA_LOGS_DIR = "/ux0:/data/zenonia3/logs"
+LOCAL_DRAWABLE_DIR = "zenonia3/res/drawable"
+LOCAL_HTML_DIR = "zenonia3/assets/html"
+VITA_ZENONIA_DATA_DIR = "/ux0:/data/zenonia3"
+# Mismo set de PNG "globales" (en ingles) que empaqueta CMakeLists.txt bajo
+# drawable/ -- ver loader/androidui.c. Se listan a mano (no todo LOCAL_DRAWABLE_DIR)
+# porque esa carpeta trae tambien variantes localizadas (_kr/_jp/_ch) que el
+# port no usa.
+DRAWABLE_ASSETS = [
+    "ui_logo_gamevil.png",
+    "ui_title_bg_nate.png",
+    "ui_title_logo5.png",
+    "ui_menu_back0.png",
+    "ui_menu_back1.png",
+    "ui_menu_newgame.png",
+    "ui_menu_continue.png",
+    "ui_menu_options.png",
+    "ui_menu_help.png",
+    "ui_menu_about.png",
+    "ui_menu_community.png",
+    "ui_about_bg.png",
+    "ui_help_bg.png",
+    "ui_menu_back.png",
+    "reply_page_back_e.png",
+    "button_write_01_global.png",
+    "button_later_01_global.png",
+]
 
 def print_banner():
     print("====================================================")
@@ -138,6 +164,67 @@ def upload_vpk():
         except:
             pass
 
+def upload_safe_dist_assets():
+    # loader/androidui.c y loader/htmlview.c ya hacen fallback a ux0:data/zenonia3/
+    # cuando el .png/.html no esta en app0: (VPK) -- esto sube esos archivos ahi,
+    # para usar zenonia_3_safe_dist.vpk (sin assets con copyright) sin perder el UI.
+    # Los PNG se suben tal cual (sin conversion), decodificados en runtime con
+    # stb_image.
+    if not os.path.isdir(LOCAL_DRAWABLE_DIR):
+        print(f"[-] No se encontró la carpeta local '{LOCAL_DRAWABLE_DIR}'.")
+        print("[!] Reconstruila desde una copia legal del APK (ver README, 'Setup Instructions').")
+        return
+
+    png_files = [f for f in DRAWABLE_ASSETS if os.path.isfile(os.path.join(LOCAL_DRAWABLE_DIR, f))]
+    missing = [f for f in DRAWABLE_ASSETS if f not in png_files]
+    if missing:
+        print(f"[!] Faltan {len(missing)} PNG en '{LOCAL_DRAWABLE_DIR}': {', '.join(missing)}")
+    if not png_files:
+        print(f"[-] No se encontró ningún PNG esperado en '{LOCAL_DRAWABLE_DIR}'.")
+        return
+
+    html_files = []
+    if os.path.isdir(LOCAL_HTML_DIR):
+        html_files = sorted(f for f in os.listdir(LOCAL_HTML_DIR) if f.endswith(".html"))
+
+    disconnect_proton_vpn()
+
+    ftp = connect_ftp()
+    if not ftp:
+        return
+
+    try:
+        remote_drawable_dir = f"{VITA_ZENONIA_DATA_DIR}/drawable"
+        create_directory_if_not_exists(ftp, remote_drawable_dir)
+        for name in png_files:
+            local_path = os.path.join(LOCAL_DRAWABLE_DIR, name)
+            dest_path = f"{remote_drawable_dir}/{name}"
+            print(f"[*] Subiendo {local_path} a {dest_path}...")
+            with open(local_path, "rb") as f:
+                ftp.storbinary(f"STOR {dest_path}", f)
+        print(f"[+] {len(png_files)} archivo(s) .png subidos a {remote_drawable_dir}")
+
+        if html_files:
+            remote_html_dir = f"{VITA_ZENONIA_DATA_DIR}/html"
+            create_directory_if_not_exists(ftp, remote_html_dir)
+            for name in html_files:
+                local_path = os.path.join(LOCAL_HTML_DIR, name)
+                dest_path = f"{remote_html_dir}/{name}"
+                print(f"[*] Subiendo {local_path} a {dest_path}...")
+                with open(local_path, "rb") as f:
+                    ftp.storbinary(f"STOR {dest_path}", f)
+            print(f"[+] {len(html_files)} archivo(s) .html subidos a {remote_html_dir}")
+
+        print(f"[+] Listo. Con build/zenonia_3_safe_dist.vpk instalado, el UI se")
+        print(f"    cargará desde '{VITA_ZENONIA_DATA_DIR}' automáticamente.")
+    except all_errors as e:
+        print(f"[-] Falló la subida de assets: {e}")
+    finally:
+        try:
+            ftp.quit()
+        except:
+            pass
+
 def download_latest_debug_files():
     # Desconectar VPN antes de transferir
     disconnect_proton_vpn()
@@ -250,10 +337,11 @@ def main():
         print("2. Descargar el último dump (.dmp) y el último log (.txt) a la carpeta actual")
         print("3. Desconectar Proton VPN ahora mismo")
         print("4. Ejecutar clean_macos.sh (limpiar archivos ocultos de macOS)")
-        print("5. Salir")
+        print("5. Subir PNG/HTML (drawable) a ux0:data/zenonia3/ (para el VPK seguro)")
+        print("6. Salir")
         print("====================================================")
         try:
-            opcion = input("Elige una opción (1-5): ").strip()
+            opcion = input("Elige una opción (1-6): ").strip()
             print()
             if opcion == "1":
                 upload_vpk()
@@ -264,6 +352,8 @@ def main():
             elif opcion == "4":
                 run_clean_macos()
             elif opcion == "5":
+                upload_safe_dist_assets()
+            elif opcion == "6":
                 print("¡Hasta luego!")
                 break
             else:

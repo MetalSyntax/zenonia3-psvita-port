@@ -39,12 +39,10 @@ Useful CMake options (pass as `-D...` to a manual `cmake` invocation, or edit th
   boot takes minutes (each line is a blocking `sceIoOpen`+`write`+`close`). Default level 2 still logs
   `[JNI WARN]`/`[JNI ERR]`, which is what actually diagnoses bugs.
 
-If you edit or add any PNG under `zenonia3/res/drawable/` that feeds the Android-UI overlay system, rerun:
-```bash
-python3 tools/build_android_ui_assets.py
-```
-This regenerates the raw RGBA8888 `androidui/*.rgba` files that `CMakeLists.txt` packages into the VPK
-(same mechanism as `font.ttf`). It requires Pillow.
+The Android-UI overlay system (`loader/androidui.c`) packages the real PNGs from `zenonia3/res/drawable/`
+directly into the VPK under `drawable/` (see `CMakeLists.txt`) and decodes them at runtime with `stb_image`
+(vendored at `lib/stb/stb_image.h`, same vendoring convention as `stb_truetype.h` for `font.c`) — there is
+no conversion step; editing/replacing one of those PNGs just needs a rebuild.
 
 ## Deploy / debug loop
 
@@ -79,7 +77,6 @@ committed or that a diff/`git status` will show changes inside them.
   `com/gamevil/zenonia3/ui/ZenoniaUIControllerView.java`, `com/gamevil/nexus2/NexusHal.java`, etc.). The
   ground truth for JNI method names/signatures, UI state numbers, and Android `res/layout/main.xml` +
   `res/drawable/` positions that get replicated natively.
-- `tools/build_android_ui_assets.py` — PNG → raw RGBA8888 converter for the Android-UI overlay system.
 - `port_progress.md` — chronological log of every real bug found and fixed **on physical hardware**,
   written as it happens, with root-cause analysis (often down to a specific instruction or struct offset).
   This is the single most valuable file for understanding *why* the code looks the way it does — read it

@@ -127,26 +127,26 @@ vita_create_vpk(${PROJECT_NAME}.vpk ${VITA_TITLEID} ${PROJECT_NAME}.self
   # OFL (cobertura Hangul completa + Latin -- el juego setea strings coreanos)
   FILE font.ttf font.ttf
   # Overlays Android (logo/titulo/menu) que el .so nativo no dibuja -- ver
-  # loader/androidui.c. Generados desde zenonia3/res/drawable/*.png (variantes
-  # "globales"/en ingles) con tools/build_android_ui_assets.py -- correr ese
-  # script de nuevo si se editan/reemplazan esos PNG.
-  FILE androidui/ui_logo_gamevil.rgba androidui/ui_logo_gamevil.rgba
-  FILE androidui/ui_title_bg_nate.rgba androidui/ui_title_bg_nate.rgba
-  FILE androidui/ui_title_logo5.rgba androidui/ui_title_logo5.rgba
-  FILE androidui/ui_menu_back0.rgba androidui/ui_menu_back0.rgba
-  FILE androidui/ui_menu_back1.rgba androidui/ui_menu_back1.rgba
-  FILE androidui/ui_menu_newgame.rgba androidui/ui_menu_newgame.rgba
-  FILE androidui/ui_menu_continue.rgba androidui/ui_menu_continue.rgba
-  FILE androidui/ui_menu_options.rgba androidui/ui_menu_options.rgba
-  FILE androidui/ui_menu_help.rgba androidui/ui_menu_help.rgba
-  FILE androidui/ui_menu_about.rgba androidui/ui_menu_about.rgba
-  FILE androidui/ui_menu_community.rgba androidui/ui_menu_community.rgba
-  FILE androidui/ui_about_bg.rgba androidui/ui_about_bg.rgba
-  FILE androidui/ui_help_bg.rgba androidui/ui_help_bg.rgba
-  FILE androidui/ui_menu_back.rgba androidui/ui_menu_back.rgba
-  FILE androidui/reply_page_back_e.rgba androidui/reply_page_back_e.rgba
-  FILE androidui/button_write_01_global.rgba androidui/button_write_01_global.rgba
-  FILE androidui/button_later_01_global.rgba androidui/button_later_01_global.rgba
+  # loader/androidui.c. PNG reales del APK (variantes "globales"/en ingles),
+  # empaquetados TAL CUAL bajo drawable/ y decodificados en runtime con
+  # stb_image -- no requieren ningun paso de conversion previo.
+  FILE zenonia3/res/drawable/ui_logo_gamevil.png drawable/ui_logo_gamevil.png
+  FILE zenonia3/res/drawable/ui_title_bg_nate.png drawable/ui_title_bg_nate.png
+  FILE zenonia3/res/drawable/ui_title_logo5.png drawable/ui_title_logo5.png
+  FILE zenonia3/res/drawable/ui_menu_back0.png drawable/ui_menu_back0.png
+  FILE zenonia3/res/drawable/ui_menu_back1.png drawable/ui_menu_back1.png
+  FILE zenonia3/res/drawable/ui_menu_newgame.png drawable/ui_menu_newgame.png
+  FILE zenonia3/res/drawable/ui_menu_continue.png drawable/ui_menu_continue.png
+  FILE zenonia3/res/drawable/ui_menu_options.png drawable/ui_menu_options.png
+  FILE zenonia3/res/drawable/ui_menu_help.png drawable/ui_menu_help.png
+  FILE zenonia3/res/drawable/ui_menu_about.png drawable/ui_menu_about.png
+  FILE zenonia3/res/drawable/ui_menu_community.png drawable/ui_menu_community.png
+  FILE zenonia3/res/drawable/ui_about_bg.png drawable/ui_about_bg.png
+  FILE zenonia3/res/drawable/ui_help_bg.png drawable/ui_help_bg.png
+  FILE zenonia3/res/drawable/ui_menu_back.png drawable/ui_menu_back.png
+  FILE zenonia3/res/drawable/reply_page_back_e.png drawable/reply_page_back_e.png
+  FILE zenonia3/res/drawable/button_write_01_global.png drawable/button_write_01_global.png
+  FILE zenonia3/res/drawable/button_later_01_global.png drawable/button_later_01_global.png
   # HTML reales del APK original que Android mostraba en un WebView sobre
   # ABOUT/HELP -- parseados a texto plano y rasterizados en runtime por
   # loader/htmltext.c/htmlview.c (ver androidui.c). Empaquetados tal cual,

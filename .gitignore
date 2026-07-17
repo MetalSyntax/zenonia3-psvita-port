@@ -41,8 +41,10 @@ log_*.txt
 Zenonia3.png
 Gemini_Generated_Image_*.png
 ux0_data
-androidui
 # Exclude copyrighted files
 lib/
 *.so
 font.ttf
+androidui/
+tools/
+PS Vita
