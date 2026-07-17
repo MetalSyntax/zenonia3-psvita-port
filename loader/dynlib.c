@@ -305,8 +305,19 @@ void glDrawArrays_wrapper(GLenum mode, GLint first, GLsizei count) {
     glDrawArrays(mode, first, count);
 }
 
+// Sin limite de log hasta ahora -- el motor llama esto por cada
+// sprite/textura dibujada, TODOS los frames (a diferencia de sus vecinos en
+// este archivo, que ya capan a las primeras ~10-20 llamadas). Cada
+// game_log() hace fprintf+fflush sincronico (I/O bloqueante a disco, mismo
+// costo que ENABLE_VERBOSE_JNI_LOG documenta en CLAUDE.md) -- sin este cap
+// era un fflush por sprite dibujado, suficiente para tirar el framerate de
+// 60 a ~13 fps sostenidos en consola real.
 void glTexEnvf_wrapper(GLenum target, GLenum pname, GLfloat param) {
-    game_log("[GL] glTexEnvf target=%x pname=%x param=%f ui_status=%d\n", target, pname, param, g_ui_status);
+    static int log = 0;
+    if (log < 10) {
+        game_log("[GL] glTexEnvf target=%x pname=%x param=%f ui_status=%d\n", target, pname, param, g_ui_status);
+        log++;
+    }
     glTexEnvf(target, pname, param);
 }
 
@@ -476,7 +487,11 @@ void glLoadIdentity_wrapper() {
 
 
 void glViewport_wrapper(GLint x, GLint y, GLsizei width, GLsizei height) {
-    game_log("[GL] glViewport x=%d y=%d w=%d h=%d (Forcing 960x544)\n", x, y, width, height);
+    static int log = 0;
+    if (log < 10) {
+        game_log("[GL] glViewport x=%d y=%d w=%d h=%d (Forcing 960x544)\n", x, y, width, height);
+        log++;
+    }
     glViewport(0, 0, 960, 544);
 }
 
@@ -487,12 +502,20 @@ void glViewport_wrapper(GLint x, GLint y, GLsizei width, GLsizei height) {
 // ese quad a un solo cuadrante de la pantalla e invierte Y — regresion real
 // vista en consola (cuadro chico blanco sobre negro, log_1783657108).
 void glOrthof_wrapper(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat zNear, GLfloat zFar) {
-    game_log("[GL] glOrthof left=%.2f right=%.2f bottom=%.2f top=%.2f\n", left, right, bottom, top);
+    static int log = 0;
+    if (log < 10) {
+        game_log("[GL] glOrthof left=%.2f right=%.2f bottom=%.2f top=%.2f\n", left, right, bottom, top);
+        log++;
+    }
     glOrthof(left, right, bottom, top, zNear, zFar);
 }
 
 void glOrthox_wrapper(GLint left, GLint right, GLint bottom, GLint top, GLint zNear, GLint zFar) {
-    game_log("[GL] glOrthox left=%d right=%d bottom=%d top=%d\n", left, right, bottom, top);
+    static int log = 0;
+    if (log < 10) {
+        game_log("[GL] glOrthox left=%d right=%d bottom=%d top=%d\n", left, right, bottom, top);
+        log++;
+    }
     // Convert from fixed point (Q16.16) to float
     glOrthof_wrapper(left / 65536.0f, right / 65536.0f, bottom / 65536.0f, top / 65536.0f, zNear / 65536.0f, zFar / 65536.0f);
 }
