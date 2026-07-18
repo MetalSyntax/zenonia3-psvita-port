@@ -17,6 +17,10 @@
 #include <vitaGL.h>
 #include "so_util.h"
 
+#if defined(OPTIMIZE_NEON_FIXED) || defined(RGB565_MODE_NEON)
+#include <arm_neon.h>
+#endif
+
 extern void game_log(const char *fmt, ...);
 extern volatile int g_ui_status;
 
@@ -121,11 +125,50 @@ void glTexParameterx_wrapper(GLenum target, GLenum pname, int param) {
     glTexParameteri(target, pname, param);
 }
 
+// Prueba A/B de 4 estrategias para el framebuffer de software RGB565 que el
+// motor sube por textura (ver CLAUDE.md / CMakeLists.txt: RGB565_CONVERT_MODE
+// -- SCALAR/LUT/NEON convierten a RGBA8888 en CPU, solo cambia como; NATIVE
+// no convierte nada, sube el RGB565 tal cual y deja que el sampler de GXM lo
+// lea nativo). Selecciona UNA sola de las 4 (mutuamente excluyentes, no son
+// flags independientes).
+#if defined(RGB565_MODE_NEON)
+static void convert_rgb565_to_rgba8888_neon(const uint16_t *src, uint8_t *dst, int npix) {
+    int i = 0;
+    for (; i + 8 <= npix; i += 8) {
+        uint16x8_t p = vld1q_u16(src + i);
+        uint16x8_t r5 = vshrq_n_u16(p, 11);
+        uint16x8_t g6 = vandq_u16(vshrq_n_u16(p, 5), vdupq_n_u16(0x3F));
+        uint16x8_t b5 = vandq_u16(p, vdupq_n_u16(0x1F));
+        // Replicacion de bits (v<<n)|(v>>(n_bits-n)) -- expansion estandar de
+        // 5/6 bits a 8 bits en hardware grafico (es EXACTAMENTE lo que hace
+        // el sampler de GXM al filtrar una textura R5G6B5 nativa -- ver el
+        // modo NATIVE mas abajo). Difiere del *255/31 de SCALAR/LUT por hasta
+        // 1 LSB en valores intermedios (p.ej. v=16: 132 vs 131) -- imperceptible
+        // a nivel visual, no es un bug de precision sino una formula distinta.
+        uint8x8_t r8 = vmovn_u16(vorrq_u16(vshlq_n_u16(r5, 3), vshrq_n_u16(r5, 2)));
+        uint8x8_t g8 = vmovn_u16(vorrq_u16(vshlq_n_u16(g6, 2), vshrq_n_u16(g6, 4)));
+        uint8x8_t b8 = vmovn_u16(vorrq_u16(vshlq_n_u16(b5, 3), vshrq_n_u16(b5, 2)));
+        uint8x8x4_t out = {{ r8, g8, b8, vdup_n_u8(255) }};
+        vst4_u8(dst + i * 4, out); // interleaved R,G,B,A -- mismo layout que dst[i*4+0..3]
+    }
+    for (; i < npix; i++) {
+        uint16_t p = src[i];
+        uint8_t r5 = (p >> 11) & 0x1F, g6 = (p >> 5) & 0x3F, b5 = p & 0x1F;
+        dst[i*4 + 0] = (r5 << 3) | (r5 >> 2);
+        dst[i*4 + 1] = (g6 << 2) | (g6 >> 4);
+        dst[i*4 + 2] = (b5 << 3) | (b5 >> 2);
+        dst[i*4 + 3] = 255;
+    }
+}
+#endif
+
 // Buffer de conversion reutilizado entre llamadas: el motor sube el
 // framebuffer 800x480 completo antes de CADA quad (varias veces por frame),
 // y hacer malloc/free de 1.5 MB en cada upload era parte del costo por
 // frame. El resultado es valido solo hasta la proxima llamada — los call
 // sites lo consumen de inmediato en glTexImage2D/glTexSubImage2D.
+// No se llama en modo NATIVE (ver call sites) -- se deja compilada igual por
+// si se necesita volver a comparar en runtime.
 void *convert_rgb565_to_rgba8888(const void *pixels, int width, int height) {
     static uint8_t *conv_buf = NULL;
     static int conv_buf_cap = 0;
@@ -139,6 +182,29 @@ void *convert_rgb565_to_rgba8888(const void *pixels, int width, int height) {
     }
     uint8_t *dst = conv_buf;
 
+#if defined(RGB565_MODE_LUT)
+    // Mismo resultado exacto que SCALAR -- son las mismas 3 formulas de
+    // expansion de bits, precomputadas una sola vez en vez de recalculadas
+    // (con division entera) en cada uno de los hasta 96000 pixeles que se
+    // convierten por upload.
+    static uint8_t r5_to_8[32], g6_to_8[64], b5_to_8[32];
+    static int lut_ready = 0;
+    if (!lut_ready) {
+        for (int i = 0; i < 32; i++) r5_to_8[i] = i * 255 / 31;
+        for (int i = 0; i < 64; i++) g6_to_8[i] = i * 255 / 63;
+        for (int i = 0; i < 32; i++) b5_to_8[i] = i * 255 / 31;
+        lut_ready = 1;
+    }
+    for (int i = 0; i < npix; i++) {
+        uint16_t p = src[i];
+        dst[i*4 + 0] = r5_to_8[(p >> 11) & 0x1F];
+        dst[i*4 + 1] = g6_to_8[(p >> 5) & 0x3F];
+        dst[i*4 + 2] = b5_to_8[p & 0x1F];
+        dst[i*4 + 3] = 255;
+    }
+#elif defined(RGB565_MODE_NEON)
+    convert_rgb565_to_rgba8888_neon(src, dst, npix);
+#else // RGB565_MODE_SCALAR (default/baseline)
     for (int i = 0; i < npix; i++) {
         uint16_t p = src[i];
         dst[i*4 + 0] = ((p >> 11) & 0x1F) * 255 / 31; // R
@@ -146,6 +212,7 @@ void *convert_rgb565_to_rgba8888(const void *pixels, int width, int height) {
         dst[i*4 + 2] = (p & 0x1F) * 255 / 31;         // B
         dst[i*4 + 3] = 255;                           // A
     }
+#endif
 
     static int conv_log = 0;
     if (conv_log < 10) {
@@ -162,9 +229,16 @@ void *convert_rgb565_to_rgba8888(const void *pixels, int width, int height) {
 }
 
 // El motor sube su framebuffer interno de software (400x240, ver Fase 1 del
-// plan) en RGB565 -- vitaGL no lo maneja igual que el motor original espera,
-// asi que se convierte a RGBA8888 en CPU antes de subirlo. Mismo bug
-// confirmado en hardware real para Zenonia 2 (mismo motor).
+// plan) en RGB565. SCALAR/LUT/NEON lo convierten a RGBA8888 en CPU antes de
+// subirlo (mismo bug confirmado en hardware real para Zenonia 2, mismo
+// motor). NATIVE es la variante sin conversion: GL_UNSIGNED_SHORT_5_6_5 esta
+// definido en vitaGL.h (0x8363) y SceGxm soporta R5G6B5 nativo en el
+// sampler, asi que en teoria el motor puede subir el RGB565 tal cual y la
+// GPU lo filtra sola -- SIN CONFIRMAR EN HARDWARE (el comentario original
+// heredado de Zenonia 2 decia "vitaGL no lo maneja igual que el motor
+// original espera" sin dejar evidencia de que se haya probado el passthrough
+// puro; si aparece textura corrupta/canal de color desplazado en el log,
+// ese es el primer sospechoso).
 void glTexImage2D_wrapper(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels) {
     static int img_log = 0;
     if (img_log < 10) {
@@ -179,8 +253,12 @@ void glTexImage2D_wrapper(GLenum target, GLint level, GLint internalformat, GLsi
             uint16_t *p = (uint16_t *)pixels;
             game_log("  -> First 4 pixels: %04x %04x %04x %04x\n", p[0], p[1], p[2], p[3]);
         }
+#if defined(RGB565_MODE_NATIVE)
+        glTexImage2D(target, level, GL_RGB, width, height, border, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, pixels);
+#else
         void *new_pixels = convert_rgb565_to_rgba8888(pixels, width, height);
         glTexImage2D(target, level, GL_RGBA, width, height, border, GL_RGBA, GL_UNSIGNED_BYTE, new_pixels);
+#endif
     } else {
         glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
     }
@@ -206,8 +284,12 @@ void glTexSubImage2D_wrapper(GLenum target, GLint level, GLint xoffset, GLint yo
     glGetError();
 
     if (format == GL_RGB && type == GL_UNSIGNED_SHORT_5_6_5) {
+#if defined(RGB565_MODE_NATIVE)
+        glTexSubImage2D(target, level, xoffset, yoffset, width, height, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, pixels);
+#else
         void *new_pixels = convert_rgb565_to_rgba8888(pixels, width, height);
         glTexSubImage2D(target, level, xoffset, yoffset, width, height, GL_RGBA, GL_UNSIGNED_BYTE, new_pixels);
+#endif
     } else {
         glTexSubImage2D(target, level, xoffset, yoffset, width, height, format, type, pixels);
     }
@@ -241,6 +323,28 @@ static GLsizei pending_fixed_texcoord_stride = 0;
 static GLfloat *fixed_texcoord_buf = NULL;
 static int fixed_texcoord_buf_cap = 0;
 
+#ifdef OPTIMIZE_NEON_FIXED
+// Prueba A/B contra el loop escalar (ver CLAUDE.md / CMakeLists.txt:
+// OPTIMIZE_NEON_FIXED). Solo valido cuando el array es tightly-packed
+// (stride_elems == size, el caso normal para estos 3 atributos en este
+// motor) -- el llamador cae al loop escalar original si no lo es, en vez de
+// asumir. Resultado bit-a-bit identico al escalar: dividir por 65536.0f o
+// multiplicar por su reciproco (1/65536, potencia de 2 exacta en float) no
+// introduce redondeo extra.
+static void fixed_to_float_neon(const int32_t *src, GLfloat *dst, int total_elems) {
+    int i = 0;
+    float32x4_t scale = vdupq_n_f32(1.0f / 65536.0f);
+    for (; i + 4 <= total_elems; i += 4) {
+        int32x4_t v = vld1q_s32(src + i);
+        float32x4_t f = vcvtq_f32_s32(v);
+        vst1q_f32(dst + i, vmulq_f32(f, scale));
+    }
+    for (; i < total_elems; i++) {
+        dst[i] = src[i] / 65536.0f;
+    }
+}
+#endif
+
 void glDrawArrays_wrapper(GLenum mode, GLint first, GLsizei count) {
     static int draw_count = 0;
     if (draw_count < 10) {
@@ -256,11 +360,18 @@ void glDrawArrays_wrapper(GLenum mode, GLint first, GLsizei count) {
             fixed_vert_buf_cap = needed_floats;
         }
         int stride_elems = pending_fixed_stride > 0 ? pending_fixed_stride / sizeof(int32_t) : pending_fixed_size;
-        for (int i = 0; i < needed_verts; i++) {
-            const int32_t *src = pending_fixed_verts + i * stride_elems;
-            GLfloat *dst = fixed_vert_buf + i * pending_fixed_size;
-            for (int c = 0; c < pending_fixed_size; c++) {
-                dst[c] = src[c] / 65536.0f;
+#ifdef OPTIMIZE_NEON_FIXED
+        if (stride_elems == pending_fixed_size) {
+            fixed_to_float_neon(pending_fixed_verts, fixed_vert_buf, needed_verts * pending_fixed_size);
+        } else
+#endif
+        {
+            for (int i = 0; i < needed_verts; i++) {
+                const int32_t *src = pending_fixed_verts + i * stride_elems;
+                GLfloat *dst = fixed_vert_buf + i * pending_fixed_size;
+                for (int c = 0; c < pending_fixed_size; c++) {
+                    dst[c] = src[c] / 65536.0f;
+                }
             }
         }
         glVertexPointer(pending_fixed_size, GL_FLOAT, 0, fixed_vert_buf);
@@ -274,11 +385,18 @@ void glDrawArrays_wrapper(GLenum mode, GLint first, GLsizei count) {
             fixed_color_buf_cap = needed_floats;
         }
         int stride_elems = pending_fixed_color_stride > 0 ? pending_fixed_color_stride / sizeof(int32_t) : pending_fixed_color_size;
-        for (int i = 0; i < needed_verts; i++) {
-            const int32_t *src = pending_fixed_colors + i * stride_elems;
-            GLfloat *dst = fixed_color_buf + i * pending_fixed_color_size;
-            for (int c = 0; c < pending_fixed_color_size; c++) {
-                dst[c] = src[c] / 65536.0f;
+#ifdef OPTIMIZE_NEON_FIXED
+        if (stride_elems == pending_fixed_color_size) {
+            fixed_to_float_neon(pending_fixed_colors, fixed_color_buf, needed_verts * pending_fixed_color_size);
+        } else
+#endif
+        {
+            for (int i = 0; i < needed_verts; i++) {
+                const int32_t *src = pending_fixed_colors + i * stride_elems;
+                GLfloat *dst = fixed_color_buf + i * pending_fixed_color_size;
+                for (int c = 0; c < pending_fixed_color_size; c++) {
+                    dst[c] = src[c] / 65536.0f;
+                }
             }
         }
         glColorPointer(pending_fixed_color_size, GL_FLOAT, 0, fixed_color_buf);
@@ -292,11 +410,18 @@ void glDrawArrays_wrapper(GLenum mode, GLint first, GLsizei count) {
             fixed_texcoord_buf_cap = needed_floats;
         }
         int stride_elems = pending_fixed_texcoord_stride > 0 ? pending_fixed_texcoord_stride / sizeof(int32_t) : pending_fixed_texcoord_size;
-        for (int i = 0; i < needed_verts; i++) {
-            const int32_t *src = pending_fixed_texcoords + i * stride_elems;
-            GLfloat *dst = fixed_texcoord_buf + i * pending_fixed_texcoord_size;
-            for (int c = 0; c < pending_fixed_texcoord_size; c++) {
-                dst[c] = src[c] / 65536.0f;
+#ifdef OPTIMIZE_NEON_FIXED
+        if (stride_elems == pending_fixed_texcoord_size) {
+            fixed_to_float_neon(pending_fixed_texcoords, fixed_texcoord_buf, needed_verts * pending_fixed_texcoord_size);
+        } else
+#endif
+        {
+            for (int i = 0; i < needed_verts; i++) {
+                const int32_t *src = pending_fixed_texcoords + i * stride_elems;
+                GLfloat *dst = fixed_texcoord_buf + i * pending_fixed_texcoord_size;
+                for (int c = 0; c < pending_fixed_texcoord_size; c++) {
+                    dst[c] = src[c] / 65536.0f;
+                }
             }
         }
         glTexCoordPointer(pending_fixed_texcoord_size, GL_FLOAT, 0, fixed_texcoord_buf);
@@ -633,10 +758,21 @@ void translate_path(const char* in_path, char* out_path, size_t out_size) {
     snprintf(out_path, out_size, "ux0:data/zenonia3/assets/%s", relative);
 }
 
+// Igual que glTexEnvf_wrapper mas arriba: sin cap, este log corria por CADA
+// fopen que hace el motor (un asset .pzx/.zt1 por sprite/animacion, muchos
+// por frame durante gameplay) -- cada game_log() es un fprintf+fflush
+// sincronico a ux0:, la misma clase de bug que ya tiro el framerate de 60 a
+// ~13fps en glTexEnvf (ver commit "Cap excessive GL logging"). fopen_hook/
+// stat_hook/access_hook son los 3 puntos de I/O de archivo mas calientes del
+// loader y eran los unicos sin cap.
 FILE* fopen_hook(const char* path, const char* mode) {
     char new_path[256];
     translate_path(path, new_path, sizeof(new_path));
-    game_log("[FakeJNI] fopen_hook: %s -> %s\n", path, new_path);
+    static int log = 0;
+    if (log < 10) {
+        game_log("[FakeJNI] fopen_hook: %s -> %s\n", path, new_path);
+        log++;
+    }
     return fopen(new_path, mode);
 }
 
@@ -681,7 +817,11 @@ int stat_hook(const char* path, void* statbuf) {
 
     struct stat st;
     int res = stat(new_path, &st);
-    game_log("[FakeJNI] stat_hook: %s -> %s = %d (size=%ld)\n", path, new_path, res, res == 0 ? (long) st.st_size : -1L);
+    static int log = 0;
+    if (log < 10) {
+        game_log("[FakeJNI] stat_hook: %s -> %s = %d (size=%ld)\n", path, new_path, res, res == 0 ? (long) st.st_size : -1L);
+        log++;
+    }
     if (res == 0 && statbuf) {
         bionic_stat_t *bst = (bionic_stat_t *) statbuf;
         memset(bst, 0, sizeof(*bst));
@@ -704,7 +844,11 @@ int stat_hook(const char* path, void* statbuf) {
 int access_hook(const char* path, int amode) {
     char new_path[256];
     translate_path(path, new_path, sizeof(new_path));
-    game_log("[FakeJNI] access_hook: %s -> %s\n", path, new_path);
+    static int log = 0;
+    if (log < 10) {
+        game_log("[FakeJNI] access_hook: %s -> %s\n", path, new_path);
+        log++;
+    }
     return access(new_path, amode);
 }
 

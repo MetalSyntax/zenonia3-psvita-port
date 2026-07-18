@@ -54,6 +54,61 @@ if (HIDE_VIRTUAL_GAMEPAD)
   add_definitions(-DZENONIA_HIDE_DPAD_UI=1)
 endif()
 
+## Prueba A/B de rendimiento (ver CLAUDE.md seccion de optimizaciones).
+##
+## RGB565_CONVERT_MODE elige UNA de 4 estrategias mutuamente excluyentes para
+## el framebuffer de software 400x240 que el motor sube por textura RGB565
+## varias veces por frame (loader/dynlib.c, convert_rgb565_to_rgba8888 +
+## glTexImage2D_wrapper/glTexSubImage2D_wrapper):
+##   - SCALAR: division entera por pixel (baseline original).
+##   - LUT:    tabla precomputada -- mismo resultado exacto que SCALAR, sin
+##             dividir por pixel.
+##   - NEON:   intrinsics NEON (vld1q_u16/vst4_u8) con expansion de bits por
+##             replicacion -- mismo enfoque que un sampler de hardware R5G6B5,
+##             difiere de SCALAR/LUT por hasta 1 LSB (imperceptible).
+##   - NATIVE: NO convierte nada -- sube el RGB565 tal cual y deja que el
+##             sampler de GXM lo lea nativo. SIN CONFIRMAR EN HARDWARE (ver
+##             comentario junto a glTexImage2D_wrapper); si el log muestra
+##             textura corrupta/canal de color desplazado, volver a SCALAR/LUT.
+set(RGB565_CONVERT_MODE "LUT" CACHE STRING "RGB565->RGBA8888 conversion strategy: SCALAR, LUT, NEON o NATIVE (perf A/B test)")
+set_property(CACHE RGB565_CONVERT_MODE PROPERTY STRINGS SCALAR LUT NEON NATIVE)
+if (RGB565_CONVERT_MODE STREQUAL "SCALAR")
+  add_definitions(-DRGB565_MODE_SCALAR=1)
+elseif (RGB565_CONVERT_MODE STREQUAL "LUT")
+  add_definitions(-DRGB565_MODE_LUT=1)
+elseif (RGB565_CONVERT_MODE STREQUAL "NEON")
+  add_definitions(-DRGB565_MODE_NEON=1)
+elseif (RGB565_CONVERT_MODE STREQUAL "NATIVE")
+  add_definitions(-DRGB565_MODE_NATIVE=1)
+else()
+  message(FATAL_ERROR "RGB565_CONVERT_MODE debe ser SCALAR, LUT, NEON o NATIVE (valor recibido: ${RGB565_CONVERT_MODE})")
+endif()
+
+## Intrinsics NEON (vld1q_s32/vcvtq_f32_s32/vmulq_f32) en vez del loop escalar
+## para la conversion GL_FIXED (Q16.16) -> float de vertex/color/texcoord
+## arrays en glDrawArrays_wrapper -- corre por cada vertice de cada draw
+## call, cada frame. Resultado bit-a-bit identico al escalar (ver comentario
+## junto a fixed_to_float_neon en dynlib.c) -- eje de A/B independiente del
+## de RGB565_CONVERT_MODE de arriba.
+option(OPTIMIZE_NEON_FIXED "Use NEON SIMD instead of scalar division for GL_FIXED (Q16.16) vertex/color/texcoord conversion (perf A/B test)" ON)
+if (OPTIMIZE_NEON_FIXED)
+  add_definitions(-DOPTIMIZE_NEON_FIXED=1)
+endif()
+
+## Con RGB565_CONVERT_MODE=NATIVE el frame renderiza tan rapido que cae justo
+## en el borde del vblank del panel (60Hz) -- el vsync interno de vitaGL (que
+## solo espera 1 vblank) da un framerate que rebota entre ~40 y ~60 en vez de
+## estabilizarse. Esta opcion apaga ese vsync (vglWaitVblankStart(GL_FALSE)
+## en gl_init()) y fuerza manualmente 2 vblanks por frame
+## (sceDisplayWaitVblankStartMulti(2) en el loop principal, main.c) -- cap
+## duro a 30fps estable y sin tearing. Inocuo con los otros modos de
+## RGB565_CONVERT_MODE (20-24fps ya medidos): si el frame ya tardo mas de 2
+## vblanks, la espera manual no hace nada, no empeora el framerate real.
+option(LOCK_FPS_30 "Cap framerate at a stable 30fps (2 vblanks) instead of vitaGL's default single-vblank vsync -- fixes the ~40-60fps jitter seen with RGB565_CONVERT_MODE=NATIVE" ON)
+if (LOCK_FPS_30)
+  add_definitions(-DLOCK_FPS_30=1)
+endif()
+
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 # ATTRIBUTE2=12 pide el presupuesto de memoria extendido -- sin esto,

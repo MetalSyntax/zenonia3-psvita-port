@@ -14,6 +14,7 @@
 #include <psp2/ctrl.h>
 #include <psp2/touch.h>
 #include <psp2/display.h>
+#include <psp2/power.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -295,10 +296,33 @@ void gl_init() {
     // GL_FALSE aca es el resultado sano a 960x544 (resolucion nativa, nunca
     // cae al fallback) -- no tratarlo como fallo de init.
     vglInitExtended(0, 960, 544, 6 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE);
+#ifdef LOCK_FPS_30
+    // El vsync interno de vitaGL solo espera 1 vblank (panel a 60Hz) -- con
+    // RGB565_CONVERT_MODE=NATIVE el frame a veces entra en ese vblank y a
+    // veces no, y el resultado es un framerate que rebota entre ~60 y ~40
+    // (el jitter/stutter tipico de estar justo en el borde del vblank). Se
+    // apaga el vsync de vitaGL y se toma control manual del pacing en el
+    // loop principal (sceDisplayWaitVblankStartMulti(2)) para forzar
+    // siempre 2 vblanks por frame -- 30fps estable y sin tearing en vez de
+    // "hasta 60 pero irregular".
+    vglWaitVblankStart(GL_FALSE);
+#endif
     gl_active = 1;
 }
 
+// Clocks conservadores de fabrica (CPU 333MHz / bus 166MHz / GPU 111MHz) --
+// subir a los maximos estables conocidos en homebrew de Vita es standard
+// practice (mismo approach usado en la mayoria de ports vitaGL) y no toca
+// ninguna logica del juego, solo la frecuencia real del hardware.
+void raise_clocks() {
+    scePowerSetArmClockFrequency(444);
+    scePowerSetBusClockFrequency(222);
+    scePowerSetGpuClockFrequency(222);
+    scePowerSetGpuXbarClockFrequency(166);
+}
+
 int main() {
+    raise_clocks();
     init_log();
 	game_log("Iniciando Zenonia 3 port (SoLoader)\n");
 
@@ -391,6 +415,13 @@ int main() {
 		int last_tx = 0, last_ty = 0;
 		unsigned int old_buttons = 0;
 		int frame = 0;
+
+		// Contador de FPS real (para comparar builds A/B de las
+		// optimizaciones RGB565_LUT/NEON_FIXED contra un mismo punto de
+		// referencia en el log, en vez de "a ojo"). Ventana de ~2s en vez de
+		// por-frame para no agregar overhead de log al loop caliente.
+		int fps_count = 0;
+		SceUInt64 fps_window_start = sceKernelGetProcessTimeWide();
 
 		while (1) {
 			sceCtrlPeekBufferPositive(0, &pad, 1);
@@ -584,7 +615,23 @@ int main() {
 			// replicarlo aca.
 			androidui_draw(g_ui_status, SCREEN_W, SCREEN_H);
 
+#ifdef LOCK_FPS_30
+			// 2 vblanks = 30fps a un panel de 60Hz. Si el frame ya tardo mas
+			// de eso (build lenta, RGB565_CONVERT_MODE=SCALAR/LUT), esta
+			// llamada practicamente no espera -- no empeora nada, solo actua
+			// como cap cuando el frame es lo bastante rapido para pasarlo.
+			sceDisplayWaitVblankStartMulti(2);
+#endif
 			vglSwapBuffers(GL_FALSE);
+
+			fps_count++;
+			SceUInt64 now = sceKernelGetProcessTimeWide();
+			if (now - fps_window_start >= 2000000) {
+				double secs = (now - fps_window_start) / 1000000.0;
+				game_log("[PERF] FPS=%.1f (frames=%d en %.2fs)\n", fps_count / secs, fps_count, secs);
+				fps_count = 0;
+				fps_window_start = now;
+			}
 		}
 	}
 

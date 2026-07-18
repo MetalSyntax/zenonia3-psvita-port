@@ -50,7 +50,44 @@ else
     BUILD_TYPE="Debug"
 fi
 
-cmake "$SRC_DIR" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+# Prueba A/B de rendimiento (ver CLAUDE.md seccion de optimizaciones /
+# CMakeLists.txt). RGB565_CONVERT_MODE y OPTIMIZE_NEON_FIXED son 2 ejes
+# independientes -- pasarlos siempre explicitos por -D pisa la cache de CMake
+# de $BUILD_DIR sin necesidad de borrarla (a diferencia de cambiar el default
+# en CMakeLists.txt sin -D, que option() cachea y no recoge -- ver "Leccion
+# de build" en port_progress.md).
+echo ""
+echo "Modo de conversion RGB565->RGBA8888 (framebuffer de software, prueba A/B):"
+echo "  1) SCALAR - division entera por pixel (baseline original)"
+echo "  2) LUT    - tabla precomputada, mismo resultado exacto (default)"
+echo "  3) NEON   - SIMD con expansion de bits (~1 LSB de diferencia visual, imperceptible)"
+echo "  4) NATIVE - sin conversion, sube RGB565 directo a la GPU (SIN CONFIRMAR EN HARDWARE)"
+read -p "Opcion [1-4, default 2]: " RGB565_CHOICE
+case "$RGB565_CHOICE" in
+    1) RGB565_MODE="SCALAR" ;;
+    3) RGB565_MODE="NEON" ;;
+    4) RGB565_MODE="NATIVE" ;;
+    *) RGB565_MODE="LUT" ;;
+esac
+
+read -p "¿Usar NEON para la conversion GL_FIXED (Q16.16) de vertex/color/texcoord arrays? [S/n] " NEON_FIXED_OPTION
+if [[ "$NEON_FIXED_OPTION" =~ ^[nN]$ ]]; then
+    NEON_FIXED="OFF"
+else
+    NEON_FIXED="ON"
+fi
+
+read -p "¿Cap de framerate estable a 30fps (2 vblanks, arregla el jitter ~40-60fps de NATIVE)? [S/n] " LOCK_FPS_OPTION
+if [[ "$LOCK_FPS_OPTION" =~ ^[nN]$ ]]; then
+    LOCK_FPS_30="OFF"
+else
+    LOCK_FPS_30="ON"
+fi
+
+echo "Configuracion elegida: BUILD_TYPE=$BUILD_TYPE RGB565_CONVERT_MODE=$RGB565_MODE OPTIMIZE_NEON_FIXED=$NEON_FIXED LOCK_FPS_30=$LOCK_FPS_30"
+
+cmake "$SRC_DIR" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+    -DRGB565_CONVERT_MODE="$RGB565_MODE" -DOPTIMIZE_NEON_FIXED="$NEON_FIXED" -DLOCK_FPS_30="$LOCK_FPS_30"
 make -j$(sysctl -n hw.ncpu)
 
 echo "[3/3] Exportando archivos generados..."
@@ -65,7 +102,14 @@ if [ -f "zenonia_3" ]; then
     cp "zenonia_3" "$PROJECT_DIR/build/zenonia_3.elf"
 fi
 
+# Copia extra etiquetada con la variante A/B elegida (ademas de la copia
+# "zenonia_3.vpk" de siempre) -- para poder instalar/comparar varias corridas
+# sin que una se pise a la otra en build/.
+VPK_TAGGED_NAME="zenonia_3_${RGB565_MODE}_neonfixed-${NEON_FIXED}_fps30-${LOCK_FPS_30}.vpk"
+cp "$VPK_NAME" "$PROJECT_DIR/build/$VPK_TAGGED_NAME"
+
 echo "Build exitoso: $PROJECT_DIR/build/$VPK_NAME"
+echo "Copia etiquetada para A/B: $PROJECT_DIR/build/$VPK_TAGGED_NAME"
 echo "eboot.bin exportado a: $PROJECT_DIR/build/eboot.bin"
 
 VITA3K_APP="/Applications/Vita3K.app/Contents/MacOS/Vita3K"

@@ -8,6 +8,7 @@
   <a href="#faq">FAQ</a> •
   <a href="#known-issues">Known Issues</a> •
   <a href="#build-instructions-for-developers">How to compile</a> •
+  <a href="#performance-tuning-for-developers">Performance Tuning</a> •
   <a href="#credits">Credits</a> •
   <a href="#license">License</a>
 </p>
@@ -144,6 +145,38 @@ cmake --build build --target dump # Fetch latest coredump and parse
 ```
 
 For more information and build options, read the [CMakeLists.txt](CMakeLists.txt).
+
+Performance Tuning (For Developers)
+----------------
+
+The game's software framebuffer upload (RGB565 → the GPU, several times per frame) and the
+Q16.16 fixed-point vertex/color/texcoord conversion are the two hottest per-frame paths in the
+loader, and can each be built with a different strategy for A/B testing on real hardware. These
+are exposed as CMake options (see [CMakeLists.txt](CMakeLists.txt) for the full rationale of each):
+
+- **`RGB565_CONVERT_MODE`** (`SCALAR` | `LUT` | `NEON` | `NATIVE`) — how the 400×240 software
+  framebuffer gets from RGB565 to the GPU. `SCALAR` is the original per-pixel integer-division
+  conversion; `LUT` is a precomputed-table version of the exact same math; `NEON` is a SIMD
+  bit-replication version (≈1 LSB different from `SCALAR`/`LUT`, imperceptible); `NATIVE` skips
+  the CPU conversion entirely and uploads the RGB565 data straight to the GPU, which reads it
+  natively.
+- **`OPTIMIZE_NEON_FIXED`** (`ON`/`OFF`) — NEON SIMD instead of a scalar loop for the Q16.16 →
+  float vertex/color/texcoord conversion. Independent of `RGB565_CONVERT_MODE` above.
+- **`LOCK_FPS_30`** (`ON`/`OFF`) — caps the framerate at a stable 30fps (2 vblanks per frame,
+  vitaGL's own vsync disabled in favor of a manual `sceDisplayWaitVblankStartMulti(2)`) instead of
+  vitaGL's default single-vblank vsync. Fixes a ~40-60fps jitter that otherwise shows up whenever
+  the frame renders fast enough to land right on the vblank boundary — most notably with
+  `RGB565_CONVERT_MODE=NATIVE`.
+
+`porting_tools/build/build_and_install.sh` (option 5 of `manage_vita.py`) asks for all three
+interactively and tags the exported VPK with the chosen combination
+(e.g. `zenonia_3_NATIVE_neonfixed-OFF_fps30-ON.vpk`), so multiple builds can be installed and
+compared side by side without overwriting each other.
+
+**Confirmed on real hardware as the most stable combination:** `RGB565_CONVERT_MODE=NATIVE` +
+`OPTIMIZE_NEON_FIXED=OFF` + `LOCK_FPS_30=ON` — native RGB565 texture upload (no CPU conversion),
+scalar Q16.16 conversion, and the manual 30fps cap. This is what ships as
+`build/zenonia_3_NATIVE_neonfixed-OFF_fps30-ON.vpk`.
 
 Credits
 ----------------
