@@ -129,14 +129,18 @@ htmlview *htmlview_load(const char *name, float panel_w_px, float font_px) {
         return NULL;
     }
 
+    // Igual que los PNG de androidui.c: los .html con copyright del APK
+    // original ya NO se empaquetan en el VPK -- se leen desde
+    // ux0:data/zenonia3/html/, con un fallback a app0:html/ solo por si
+    // algun build local los empaqueta igual.
     char path[128];
-    snprintf(path, sizeof(path), "app0:html/%s.html", name);
+    snprintf(path, sizeof(path), "ux0:data/zenonia3/html/%s.html", name);
     FILE *f = fopen(path, "rb");
     if (!f) {
-        snprintf(path, sizeof(path), "ux0:data/zenonia3/html/%s.html", name);
+        snprintf(path, sizeof(path), "app0:html/%s.html", name);
         f = fopen(path, "rb");
         if (!f) {
-            game_log("[HtmlView] %s no encontrado (ni en app0 ni ux0)\n", name);
+            game_log("[HtmlView] %s no encontrado (ni en ux0 ni en app0)\n", name);
             return NULL;
         }
     }
@@ -198,7 +202,7 @@ htmlview *htmlview_load(const char *name, float panel_w_px, float font_px) {
 
     uint32_t *buf = calloc((size_t) bw * (size_t) bh, sizeof(uint32_t));
     if (!buf) {
-        free(text); free((void *) line_ptrs); free(line_lens);
+        free(text); free((void *) line_ptrs); free(line_lens); free(line_styles);
         return NULL;
     }
 

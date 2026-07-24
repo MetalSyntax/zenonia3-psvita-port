@@ -70,7 +70,11 @@ endif()
 ##             sampler de GXM lo lea nativo. SIN CONFIRMAR EN HARDWARE (ver
 ##             comentario junto a glTexImage2D_wrapper); si el log muestra
 ##             textura corrupta/canal de color desplazado, volver a SCALAR/LUT.
-set(RGB565_CONVERT_MODE "LUT" CACHE STRING "RGB565->RGBA8888 conversion strategy: SCALAR, LUT, NEON o NATIVE (perf A/B test)")
+## Default NATIVE + OPTIMIZE_NEON_FIXED=OFF abajo: confirmado en consola real
+## como la combinacion mas estable (ver README, seccion "Performance Tuning"),
+## junto con LOCK_FPS_30=ON de mas abajo -- esta es la config que build.sh
+## produce como build/zenonia_3.vpk (version final).
+set(RGB565_CONVERT_MODE "NATIVE" CACHE STRING "RGB565->RGBA8888 conversion strategy: SCALAR, LUT, NEON o NATIVE (perf A/B test)")
 set_property(CACHE RGB565_CONVERT_MODE PROPERTY STRINGS SCALAR LUT NEON NATIVE)
 if (RGB565_CONVERT_MODE STREQUAL "SCALAR")
   add_definitions(-DRGB565_MODE_SCALAR=1)
@@ -90,7 +94,7 @@ endif()
 ## call, cada frame. Resultado bit-a-bit identico al escalar (ver comentario
 ## junto a fixed_to_float_neon en dynlib.c) -- eje de A/B independiente del
 ## de RGB565_CONVERT_MODE de arriba.
-option(OPTIMIZE_NEON_FIXED "Use NEON SIMD instead of scalar division for GL_FIXED (Q16.16) vertex/color/texcoord conversion (perf A/B test)" ON)
+option(OPTIMIZE_NEON_FIXED "Use NEON SIMD instead of scalar division for GL_FIXED (Q16.16) vertex/color/texcoord conversion (perf A/B test)" OFF)
 if (OPTIMIZE_NEON_FIXED)
   add_definitions(-DOPTIMIZE_NEON_FIXED=1)
 endif()
@@ -182,42 +186,15 @@ vita_create_vpk(${PROJECT_NAME}.vpk ${VITA_TITLEID} ${PROJECT_NAME}.self
   # OFL (cobertura Hangul completa + Latin -- el juego setea strings coreanos)
   FILE font.ttf font.ttf
   # Overlays Android (logo/titulo/menu) que el .so nativo no dibuja -- ver
-  # loader/androidui.c. PNG reales del APK (variantes "globales"/en ingles),
-  # empaquetados TAL CUAL bajo drawable/ y decodificados en runtime con
-  # stb_image -- no requieren ningun paso de conversion previo.
-  FILE zenonia3/res/drawable/ui_logo_gamevil.png drawable/ui_logo_gamevil.png
-  FILE zenonia3/res/drawable/ui_title_bg_nate.png drawable/ui_title_bg_nate.png
-  FILE zenonia3/res/drawable/ui_title_logo5.png drawable/ui_title_logo5.png
-  FILE zenonia3/res/drawable/ui_menu_back0.png drawable/ui_menu_back0.png
-  FILE zenonia3/res/drawable/ui_menu_back1.png drawable/ui_menu_back1.png
-  FILE zenonia3/res/drawable/ui_menu_newgame.png drawable/ui_menu_newgame.png
-  FILE zenonia3/res/drawable/ui_menu_continue.png drawable/ui_menu_continue.png
-  FILE zenonia3/res/drawable/ui_menu_options.png drawable/ui_menu_options.png
-  FILE zenonia3/res/drawable/ui_menu_help.png drawable/ui_menu_help.png
-  FILE zenonia3/res/drawable/ui_menu_about.png drawable/ui_menu_about.png
-  FILE zenonia3/res/drawable/ui_menu_community.png drawable/ui_menu_community.png
-  FILE zenonia3/res/drawable/ui_about_bg.png drawable/ui_about_bg.png
-  FILE zenonia3/res/drawable/ui_help_bg.png drawable/ui_help_bg.png
-  FILE zenonia3/res/drawable/ui_menu_back.png drawable/ui_menu_back.png
-  FILE zenonia3/res/drawable/reply_page_back_e.png drawable/reply_page_back_e.png
-  FILE zenonia3/res/drawable/button_write_01_global.png drawable/button_write_01_global.png
-  FILE zenonia3/res/drawable/button_later_01_global.png drawable/button_later_01_global.png
-  # HTML reales del APK original que Android mostraba en un WebView sobre
-  # ABOUT/HELP -- parseados a texto plano y rasterizados en runtime por
-  # loader/htmltext.c/htmlview.c (ver androidui.c). Empaquetados tal cual,
-  # sin conversion (son texto plano).
-  FILE zenonia3/assets/html/about.html html/about.html
-  FILE zenonia3/assets/html/help_eng.html html/help_eng.html
-)
-
-## VPK seguro (libre de distribucion, sin assets con copyright)
-vita_create_vpk(${PROJECT_NAME}_safe_dist.vpk ${VITA_TITLEID} ${PROJECT_NAME}.self
-  VERSION ${VITA_VERSION}
-  NAME ${VITA_APP_NAME}
-  FILE sce_sys/icon0.png sce_sys/icon0.png
-  FILE sce_sys/pic0.png sce_sys/pic0.png
-  FILE sce_sys/livearea/contents/bg0.png sce_sys/livearea/contents/bg0.png
-  FILE sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
-  FILE sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
-  FILE font.ttf font.ttf
+  # loader/androidui.c -- y el texto de ABOUT/HELP (loader/htmltext.c/
+  # htmlview.c) usan los PNG/HTML reales del APK original (variantes
+  # "globales"/en ingles). Esos archivos tienen copyright de Gamevil y YA NO
+  # se empaquetan aca: se leen en runtime desde
+  # ux0:data/zenonia3/drawable/ y ux0:data/zenonia3/html/ (memoria externa,
+  # subidos por FTP con manage_vita.py) en vez de instalarse dentro del VPK
+  # bajo ux0:app/${VITA_TITLEID}/ -- mantiene el VPK distribuible sin
+  # material con copyright y evita reinstalar el paquete entero cada vez que
+  # cambia un PNG. androidui.c/htmlview.c igual mantienen un fallback a
+  # app0:drawable/ / app0:html/ (adentro del VPK) por si algun build local
+  # decide empaquetarlos de nuevo a mano.
 )

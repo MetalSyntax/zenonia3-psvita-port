@@ -13,12 +13,18 @@
  * DrawTeamLogo, out_ghidra.c:105397/105434), sin el arte real encima.
  *
  * Solucion: replicar esos overlays a mano con texturas GL, usando los PNG
- * reales del APK (variantes "globales"/en ingles -- no las _kr/_jp/_ch)
- * empaquetados TAL CUAL en el VPK bajo drawable/ (ver CMakeLists.txt) y
+ * reales del APK (variantes "globales"/en ingles -- no las _kr/_jp/_ch),
  * decodificados en runtime con stb_image (lib/stb/stb_image.h, mismo
  * mecanismo de vendoring que stb_truetype para font.c) -- no hace falta
  * ningun paso de conversion previo, el port solo necesita los PNG reales
  * del APK (zenonia3/res/drawable/).
+ *
+ * Los PNG NO se empaquetan en el VPK (ver CMakeLists.txt) -- se leen desde
+ * memoria externa (ux0:data/zenonia3/drawable/), subidos ahi por FTP con
+ * manage_vita.py (upload_external_assets()). Esto mantiene el VPK sin
+ * material con copyright y evita reinstalar el paquete entero cada vez que
+ * cambia un PNG. app0:drawable/ (adentro del VPK) sigue funcionando como
+ * fallback si alguien arma un build local que sí los empaqueta.
  *
  * Posiciones: NO son inventadas -- salen de leer el codigo Java real
  * (com/gamevil/nexus2/Natives.java, showMenuItemComponent()) que calcula los
@@ -56,28 +62,28 @@
 extern void game_log(const char *fmt, ...);
 
 typedef struct {
-    const char *png_path; // app0:drawable/<nombre>.png
+    const char *name; // <nombre>.png, relativo a drawable/
     GLuint tex;
     int w, h;
 } androidui_tex;
 
-static androidui_tex g_tex_logo        = { "app0:drawable/ui_logo_gamevil.png" };
-static androidui_tex g_tex_title_bg    = { "app0:drawable/ui_title_bg_nate.png" };
-static androidui_tex g_tex_title_logo5 = { "app0:drawable/ui_title_logo5.png" };
-static androidui_tex g_tex_menu_back0  = { "app0:drawable/ui_menu_back0.png" };
-static androidui_tex g_tex_menu_back1  = { "app0:drawable/ui_menu_back1.png" };
-static androidui_tex g_tex_btn_newgame   = { "app0:drawable/ui_menu_newgame.png" };
-static androidui_tex g_tex_btn_continue  = { "app0:drawable/ui_menu_continue.png" };
-static androidui_tex g_tex_btn_options   = { "app0:drawable/ui_menu_options.png" };
-static androidui_tex g_tex_btn_help      = { "app0:drawable/ui_menu_help.png" };
-static androidui_tex g_tex_btn_about     = { "app0:drawable/ui_menu_about.png" };
-static androidui_tex g_tex_btn_community = { "app0:drawable/ui_menu_community.png" };
-static androidui_tex g_tex_about_bg      = { "app0:drawable/ui_about_bg.png" };
-static androidui_tex g_tex_help_bg       = { "app0:drawable/ui_help_bg.png" };
-static androidui_tex g_tex_backbtn       = { "app0:drawable/ui_menu_back.png" };
-static androidui_tex g_tex_reply_bg      = { "app0:drawable/reply_page_back_e.png" };
-static androidui_tex g_tex_btn_write     = { "app0:drawable/button_write_01_global.png" };
-static androidui_tex g_tex_btn_later     = { "app0:drawable/button_later_01_global.png" };
+static androidui_tex g_tex_logo        = { "ui_logo_gamevil.png" };
+static androidui_tex g_tex_title_bg    = { "ui_title_bg_nate.png" };
+static androidui_tex g_tex_title_logo5 = { "ui_title_logo5.png" };
+static androidui_tex g_tex_menu_back0  = { "ui_menu_back0.png" };
+static androidui_tex g_tex_menu_back1  = { "ui_menu_back1.png" };
+static androidui_tex g_tex_btn_newgame   = { "ui_menu_newgame.png" };
+static androidui_tex g_tex_btn_continue  = { "ui_menu_continue.png" };
+static androidui_tex g_tex_btn_options   = { "ui_menu_options.png" };
+static androidui_tex g_tex_btn_help      = { "ui_menu_help.png" };
+static androidui_tex g_tex_btn_about     = { "ui_menu_about.png" };
+static androidui_tex g_tex_btn_community = { "ui_menu_community.png" };
+static androidui_tex g_tex_about_bg      = { "ui_about_bg.png" };
+static androidui_tex g_tex_help_bg       = { "ui_help_bg.png" };
+static androidui_tex g_tex_backbtn       = { "ui_menu_back.png" };
+static androidui_tex g_tex_reply_bg      = { "reply_page_back_e.png" };
+static androidui_tex g_tex_btn_write     = { "button_write_01_global.png" };
+static androidui_tex g_tex_btn_later     = { "button_later_01_global.png" };
 
 // Panel de texto de ABOUT/HELP: el rect de Android para
 // aboutWebView/helpWebView (leftMargin=1/400, topMargin=5/240, width=300/400,
@@ -113,20 +119,23 @@ static htmlview *g_help_text = NULL;
 static htmlview *g_help_title = NULL;
 
 static int androidui_load_one(androidui_tex *t) {
-    // Igual que el fallback ya existente en htmlview_load(): primero el PNG
-    // empaquetado en el VPK (app0:), y si no esta (VPK "seguro" sin assets
-    // con copyright, ver zenonia_3_safe_dist.vpk) el mismo archivo subido a
-    // mano por FTP a ux0:data/zenonia3/.
+    // Los PNG con copyright del APK original ya NO se empaquetan en el VPK
+    // (ver CMakeLists.txt) -- se leen desde ux0:data/zenonia3/, subidos a
+    // mano por FTP (manage_vita.py opcion de subir assets). Se mantiene un
+    // fallback a app0: (VPK) solo por si alguien arma un build local que si
+    // los empaqueta.
+    char primary_path[256];
     char fallback_path[256];
-    const char *path = t->png_path;
+    snprintf(primary_path, sizeof(primary_path), "ux0:data/zenonia3/drawable/%s", t->name);
+    const char *path = primary_path;
     FILE *f = fopen(path, "rb");
     if (f) {
         fclose(f);
     } else {
-        snprintf(fallback_path, sizeof(fallback_path), "ux0:data/zenonia3/%s", t->png_path + 5);
+        snprintf(fallback_path, sizeof(fallback_path), "app0:drawable/%s", t->name);
         f = fopen(fallback_path, "rb");
         if (!f) {
-            game_log("[AndroidUI] %s (ni en ux0) no encontrado\n", t->png_path);
+            game_log("[AndroidUI] %s (ni en ux0 ni en app0) no encontrado\n", t->name);
             return 0;
         }
         fclose(f);

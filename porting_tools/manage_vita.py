@@ -126,6 +126,38 @@ def upload_vpk():
         except:
             pass
 
+def upload_eboot():
+    project_root = os.path.dirname(BASE_DIR)
+    local_eboot_path = os.path.join(project_root, "build", "eboot.bin")
+
+    if not os.path.exists(local_eboot_path):
+        print(f"[-] No se encontró '{local_eboot_path}'. Asegúrate de haber compilado el proyecto.")
+        return
+
+    disconnect_proton_vpn()
+    ftp = connect_ftp()
+    if not ftp:
+        return
+
+    dest_dir = "/ux0:/app/PSVZ00003"
+    dest_file_path = f"{dest_dir}/eboot.bin"
+
+    try:
+        create_directory_if_not_exists(ftp, dest_dir)
+        print(f"[*] Subiendo {local_eboot_path} a {dest_file_path}...")
+        
+        with open(local_eboot_path, "rb") as f:
+            ftp.storbinary(f"STOR {dest_file_path}", f)
+            
+        print("[+] ¡eboot.bin subido exitosamente! Ya puedes iniciar el juego sin tener que reinstalar el VPK entero.")
+    except all_errors as e:
+        print(f"[-] Falló la transferencia del eboot.bin: {e}")
+    finally:
+        try:
+            ftp.quit()
+        except:
+            pass
+
 def download_latest_debug_files():
     disconnect_proton_vpn()
     ftp = connect_ftp()
@@ -543,54 +575,57 @@ def run_script(folder, script_name, is_python=False):
 def main():
     while True:
         print_banner()
-        print("1. Subir VPK compilado a la PS Vita (ux0:downloads/)")
-        print("2. Descargar el último dump (.dmp) y log (.txt) de Zenonia 3")
-        print("3. Desconectar Proton VPN ahora mismo")
-        print("4. Ejecutar clean_macos.sh (build/)")
-        print("5. Ejecutar build_and_install.sh (build/)")
-        print("6. Ejecutar deploy_and_launch_vita3k.sh (build/)")
-        print("7. Ejecutar decompile_all.sh (build/)")
-        print("8. Ejecutar run_tests.sh (tests/)")
-        print("9. Ejecutar get_dump.sh (misc/)")
-        print("10. Descargar Shaders GLSL dumpeados")
-        print("11. Subir Shaders CG traducidos (assets/cg/ -> Vita)")
-        print("12. Sincronizar Shaders (descargar GLSL + subir CG, todo en uno)")
-        print("13. Chequear libshacccg.suprx (tamano/existencia por FTP)")
-        print("14. Verificar data/ completa (conteo de archivos local vs Vita)")
-        print("15. Salir")
+        print("1. Subir VPK compilado a la PS Vita (ux0:downloads/) -- elige entre los .vpk de build/")
+        print("2. Subir SOLO el eboot.bin a la PS Vita (ux0:app/PSVZ00003/) para actualizar rápido")
+        print("3. Descargar el último dump (.dmp) y log (.txt) de Zenonia 3")
+        print("4. Desconectar Proton VPN ahora mismo")
+        print("5. Ejecutar clean_macos.sh (build/)")
+        print("6. Ejecutar build_and_install.sh (build/)")
+        print("7. Ejecutar deploy_and_launch_vita3k.sh (build/)")
+        print("8. Ejecutar decompile_all.sh (build/)")
+        print("9. Ejecutar run_tests.sh (tests/)")
+        print("10. Ejecutar get_dump.sh (misc/)")
+        print("11. Descargar Shaders GLSL dumpeados")
+        print("12. Subir Shaders CG traducidos (assets/cg/ -> Vita)")
+        print("13. Sincronizar Shaders (descargar GLSL + subir CG, todo en uno)")
+        print("14. Chequear libshacccg.suprx (tamano/existencia por FTP)")
+        print("15. Verificar data/ completa (conteo de archivos local vs Vita)")
+        print("16. Salir")
         print("====================================================")
         try:
-            opcion = input("Elige una opción (1-15): ").strip()
+            opcion = input("Elige una opción (1-16): ").strip()
             print()
             if opcion == "1":
                 upload_vpk()
             elif opcion == "2":
-                download_latest_debug_files()
+                upload_eboot()
             elif opcion == "3":
-                disconnect_proton_vpn()
+                download_latest_debug_files()
             elif opcion == "4":
-                run_script("build", "clean_macos.sh")
+                disconnect_proton_vpn()
             elif opcion == "5":
-                run_script("build", "build_and_install.sh")
+                run_script("build", "clean_macos.sh")
             elif opcion == "6":
-                run_script("build", "deploy_and_launch_vita3k.sh")
+                run_script("build", "build_and_install.sh")
             elif opcion == "7":
-                run_script("build", "decompile_all.sh")
+                run_script("build", "deploy_and_launch_vita3k.sh")
             elif opcion == "8":
-                run_script("tests", "run_tests.sh")
+                run_script("build", "decompile_all.sh")
             elif opcion == "9":
-                run_script("misc", "get_dump.sh")
+                run_script("tests", "run_tests.sh")
             elif opcion == "10":
-                download_glsl_shaders()
+                run_script("misc", "get_dump.sh")
             elif opcion == "11":
-                upload_cg_shaders()
+                download_glsl_shaders()
             elif opcion == "12":
-                sync_shaders()
+                upload_cg_shaders()
             elif opcion == "13":
-                check_libshacccg()
+                sync_shaders()
             elif opcion == "14":
-                verify_data_assets()
+                check_libshacccg()
             elif opcion == "15":
+                verify_data_assets()
+            elif opcion == "16":
                 print("¡Hasta luego!")
                 break
             else:

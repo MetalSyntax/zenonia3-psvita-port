@@ -177,7 +177,17 @@ void *convert_rgb565_to_rgba8888(const void *pixels, int width, int height) {
     uint16_t *src = (uint16_t *)pixels;
     int npix = width * height;
     if (npix * 4 > conv_buf_cap) {
-        conv_buf = (uint8_t *)realloc(conv_buf, npix * 4);
+        // Chequear el resultado antes de pisar conv_buf/conv_buf_cap: si
+        // realloc falla, devuelve NULL y el bloque viejo sigue vivo -- pisar
+        // conv_buf igual lo perderia (leak) Y dejaria conv_buf_cap "grande"
+        // con conv_buf en NULL, haciendo que la proxima llamada se salte el
+        // realloc (cree que ya hay lugar) y escriba sobre un dst NULL.
+        uint8_t *new_buf = (uint8_t *)realloc(conv_buf, npix * 4);
+        if (!new_buf) {
+            game_log("[GL] convert_rgb565_to_rgba8888: realloc fallo para %d bytes\n", npix * 4);
+            return NULL;
+        }
+        conv_buf = new_buf;
         conv_buf_cap = npix * 4;
     }
     uint8_t *dst = conv_buf;
@@ -356,7 +366,15 @@ void glDrawArrays_wrapper(GLenum mode, GLint first, GLsizei count) {
         int needed_verts = first + count;
         int needed_floats = needed_verts * pending_fixed_size;
         if (needed_floats > fixed_vert_buf_cap) {
-            fixed_vert_buf = (GLfloat *)realloc(fixed_vert_buf, needed_floats * sizeof(GLfloat));
+            // Ver nota en convert_rgb565_to_rgba8888: si realloc falla,
+            // pisar fixed_vert_buf/cap igual perderia el bloque viejo y
+            // dejaria el loop de mas abajo escribiendo sobre un puntero NULL.
+            GLfloat *new_buf = (GLfloat *)realloc(fixed_vert_buf, needed_floats * sizeof(GLfloat));
+            if (!new_buf) {
+                game_log("[GL] glDrawArrays: realloc de fixed_vert_buf fallo (%d floats)\n", needed_floats);
+                return;
+            }
+            fixed_vert_buf = new_buf;
             fixed_vert_buf_cap = needed_floats;
         }
         int stride_elems = pending_fixed_stride > 0 ? pending_fixed_stride / sizeof(int32_t) : pending_fixed_size;
@@ -381,7 +399,12 @@ void glDrawArrays_wrapper(GLenum mode, GLint first, GLsizei count) {
         int needed_verts = first + count;
         int needed_floats = needed_verts * pending_fixed_color_size;
         if (needed_floats > fixed_color_buf_cap) {
-            fixed_color_buf = (GLfloat *)realloc(fixed_color_buf, needed_floats * sizeof(GLfloat));
+            GLfloat *new_buf = (GLfloat *)realloc(fixed_color_buf, needed_floats * sizeof(GLfloat));
+            if (!new_buf) {
+                game_log("[GL] glDrawArrays: realloc de fixed_color_buf fallo (%d floats)\n", needed_floats);
+                return;
+            }
+            fixed_color_buf = new_buf;
             fixed_color_buf_cap = needed_floats;
         }
         int stride_elems = pending_fixed_color_stride > 0 ? pending_fixed_color_stride / sizeof(int32_t) : pending_fixed_color_size;
@@ -406,7 +429,12 @@ void glDrawArrays_wrapper(GLenum mode, GLint first, GLsizei count) {
         int needed_verts = first + count;
         int needed_floats = needed_verts * pending_fixed_texcoord_size;
         if (needed_floats > fixed_texcoord_buf_cap) {
-            fixed_texcoord_buf = (GLfloat *)realloc(fixed_texcoord_buf, needed_floats * sizeof(GLfloat));
+            GLfloat *new_buf = (GLfloat *)realloc(fixed_texcoord_buf, needed_floats * sizeof(GLfloat));
+            if (!new_buf) {
+                game_log("[GL] glDrawArrays: realloc de fixed_texcoord_buf fallo (%d floats)\n", needed_floats);
+                return;
+            }
+            fixed_texcoord_buf = new_buf;
             fixed_texcoord_buf_cap = needed_floats;
         }
         int stride_elems = pending_fixed_texcoord_stride > 0 ? pending_fixed_texcoord_stride / sizeof(int32_t) : pending_fixed_texcoord_size;
@@ -745,7 +773,10 @@ void* realloc_wrapper(void* ptr, size_t size) {
 
 void translate_path(const char* in_path, char* out_path, size_t out_size) {
     if (strncmp(in_path, "ux0:", 4) == 0) {
-        strncpy(out_path, in_path, out_size);
+        // strncpy no garantiza terminador si in_path >= out_size (256, ver
+        // fopen_hook/stat_hook/access_hook) -- snprintf trunca y siempre
+        // termina en '\0', evitando leer basura de stack como path.
+        snprintf(out_path, out_size, "%s", in_path);
         return;
     }
     const char* relative = in_path;

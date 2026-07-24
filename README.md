@@ -68,6 +68,13 @@ of an `.apk` file. Make sure that your game is the correct supported version.
 and extract all folders from the `.apk` into `ux0:data/zenonia3` on your Vita.
 Example of correct resulting path: `ux0:data/zenonia3/lib/armeabi/libzenonia3.so`
 
+- The menu/title art (`res/drawable/`) and the ABOUT/HELP text (`assets/html/`)
+are read from external storage instead of being bundled in the VPK, so copy
+those two folders over too, **renaming them** to match what the loader
+expects:
+    - `res/drawable/` → `ux0:data/zenonia3/drawable/`
+    - `assets/html/` → `ux0:data/zenonia3/html/`
+
 - Install `Zenonia3.vpk` (from [Releases][latest-release]).
 
 
@@ -175,8 +182,11 @@ compared side by side without overwriting each other.
 
 **Confirmed on real hardware as the most stable combination:** `RGB565_CONVERT_MODE=NATIVE` +
 `OPTIMIZE_NEON_FIXED=OFF` + `LOCK_FPS_30=ON` — native RGB565 texture upload (no CPU conversion),
-scalar Q16.16 conversion, and the manual 30fps cap. This is what ships as
-`build/zenonia_3_NATIVE_neonfixed-OFF_fps30-ON.vpk`.
+scalar Q16.16 conversion, and the manual 30fps cap. These are now the defaults in
+[CMakeLists.txt](CMakeLists.txt), so a plain `./build.sh` run already produces
+`build/zenonia_3.vpk` in this configuration — it's the definitive release build. Use
+`porting_tools/build/build_and_install.sh` (option 5 of `manage_vita.py`) instead if you want to
+override any of the three and compare a differently-tagged VPK side by side.
 
 Credits
 ----------------

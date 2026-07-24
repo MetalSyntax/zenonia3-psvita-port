@@ -164,10 +164,11 @@ def upload_vpk():
         except:
             pass
 
-def upload_safe_dist_assets():
-    # loader/androidui.c y loader/htmlview.c ya hacen fallback a ux0:data/zenonia3/
-    # cuando el .png/.html no esta en app0: (VPK) -- esto sube esos archivos ahi,
-    # para usar zenonia_3_safe_dist.vpk (sin assets con copyright) sin perder el UI.
+def upload_external_assets():
+    # loader/androidui.c y loader/htmlview.c leen estos PNG/HTML desde
+    # ux0:data/zenonia3/ (ya no se empaquetan en el VPK, ver CMakeLists.txt) --
+    # esto sube esos archivos ahi. Necesario para CUALQUIER build, no solo uno
+    # "seguro": sin esto el logo/menu/ABOUT/HELP quedan en blanco/negro.
     # Los PNG se suben tal cual (sin conversion), decodificados en runtime con
     # stb_image.
     if not os.path.isdir(LOCAL_DRAWABLE_DIR):
@@ -215,7 +216,7 @@ def upload_safe_dist_assets():
                     ftp.storbinary(f"STOR {dest_path}", f)
             print(f"[+] {len(html_files)} archivo(s) .html subidos a {remote_html_dir}")
 
-        print(f"[+] Listo. Con build/zenonia_3_safe_dist.vpk instalado, el UI se")
+        print(f"[+] Listo. Con build/zenonia_3.vpk instalado, el UI se")
         print(f"    cargará desde '{VITA_ZENONIA_DATA_DIR}' automáticamente.")
     except all_errors as e:
         print(f"[-] Falló la subida de assets: {e}")
@@ -337,7 +338,7 @@ def main():
         print("2. Descargar el último dump (.dmp) y el último log (.txt) a la carpeta actual")
         print("3. Desconectar Proton VPN ahora mismo")
         print("4. Ejecutar clean_macos.sh (limpiar archivos ocultos de macOS)")
-        print("5. Subir PNG/HTML (drawable) a ux0:data/zenonia3/ (para el VPK seguro)")
+        print("5. Subir PNG/HTML (drawable) a ux0:data/zenonia3/ (necesario para el UI)")
         print("6. Salir")
         print("====================================================")
         try:
@@ -352,7 +353,7 @@ def main():
             elif opcion == "4":
                 run_clean_macos()
             elif opcion == "5":
-                upload_safe_dist_assets()
+                upload_external_assets()
             elif opcion == "6":
                 print("¡Hasta luego!")
                 break
