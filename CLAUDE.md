@@ -25,15 +25,63 @@ This is the only supported build entry point (not bare `cmake`). It copies the r
 before building — **required** because the real project directory has a space in its path
 (`PSVITA Develop`), which breaks the VitaSDK toolchain/`vita-mksfoex`. The copy is an `rsync -a`, so it
 always picks up local edits; the output VPK is copied back to `build/zenonia_3.vpk`. `build.sh` requires
-`VITASDK` to be set (or installed at `/usr/local/vitasdk` or `~/vitasdk`) and ends with interactive
-prompts for Vita3K/FTP install — safe to let those hit EOF/skip when running non-interactively, the VPK is
-already written by that point.
+`VITASDK` to be set (or installed at `/usr/local/vitasdk` or `~/vitasdk`) and ends with an interactive
+FTP-install-to-PS-Vita prompt — safe to let it hit EOF/skip when running non-interactively, the VPK is
+already written by that point. Requires `git submodule update --init` once (for `lib/vitagl` and
+`lib/vitashark`, see below) — a fresh clone's submodule directories are empty until that runs.
+
+vitaGL and vitaShaRK are vendored as git submodules (`lib/vitagl`/`lib/vitashark`, each pinned to a
+specific upstream commit of [Rinnegatamante/vitaGL][vitagl]/[Rinnegatamante/vitaShaRK][vitashark]) and
+built from source by `CMakeLists.txt`'s `vitaGL_lib`/`vitashark_lib` custom targets, instead of linking the
+prebuilt `.a`s from the VITASDK install. Two independent reasons:
+- It's what lets the project pick its own vitaGL compile flags (currently `NO_SPLASHSCREEN=1`, which
+  removes vitaGL's own animated boot splashscreen; see `VITAGL_MAKE_FLAGS_STR`) without touching the
+  system-wide VITASDK install other ports on the same machine also link against. Changing that flags
+  string requires a full `lib/vitagl` rebuild — `scripts/build_vitagl.sh` (tracked in this repo, *not*
+  inside the submodule checkout, so a fresh clone has it) compares against a stamp file and
+  runs `make clean` there automatically when the flags change, so a normal `./build.sh` picks it up with
+  no manual steps.
+- `vdpm`'s prebuilt `vitaGL`/`vitaShaRK` packages come from the `vitasdk-softfp/packages` mirror, which
+  hasn't been rebuilt since 2024-04-25 — too old for current vitaGL upstream (needs newer `SceGxm.h` flags
+  and a `vitaShaRK` build new enough to export `shark_set_shader_association_path`, which current vitaGL
+  calls unconditionally from `vgl.c`). Vendoring both from their real upstream repos sidesteps that stale
+  mirror entirely, for this project only.
+
+**`patches/vitagl-*.patch`** hold this project's own fixes on top of the pinned upstream vitaGL commit,
+applied automatically (and idempotently — safe to re-run every build) by `scripts/build_vitagl.sh` before `make`.
+Patches, not a permanently-dirty submodule checkout, so `git submodule update --init` on a fresh clone
+always lands on a clean, fetchable upstream commit and still ends up correct after the next build.
+`vitagl-disable-system-app-mode.patch` disables vitaGL's `system_app_mode` autodetection
+(`sceAppMgrGetBudgetInfo` in `init_gxm()`, `lib/vitagl/source/gxm.c`) — a newer vitaGL feature for genuine
+system-level plugins (shared-framebuffer presentation via `sceSharedFbBegin`) that doesn't exist in the old
+prebuilt vitaGL this project used before vendoring. On real hardware, that autodetection returned "yes,
+this is a system app" for this project's UNSAFE/NOASLR self + kubridge/taiHEN setup even though Zenonia 3
+is an ordinary LiveArea-launched VPK — the shared-framebuffer path it then took never reached the physical
+display, producing a **permanent black screen from boot**. If a future vitaGL commit bump reintroduces a
+black screen, check whether this patch still applies cleanly (`git apply --check`) before assuming a new
+regression.
+
+**Toolchain version note:** the pinned vitaGL commit needs `SceGxm.h` flags
+(`SCE_GXM_INITIALIZE_FLAG_EXTENDED_FORMAT` etc.) that ship in current `vitasdk/vita-headers` but not in the
+`vitasdk-softfp` autobuild mirror `vitasdk-update`/`vdpm` pull from (also stale since 2024-04-25) — a stock
+`vitasdk-update` run will *not* fix this, since it re-fetches from the same stale mirror. If `vitaGL_lib`
+fails to compile with "undeclared identifier" errors on those symbols, the fix that's actually worked here
+is overlaying just `psp2/gxm.h` from `https://raw.githubusercontent.com/vitasdk/vita-headers/master/include/psp2/gxm.h`
+onto `$VITASDK/arm-vita-eabi/include/psp2/gxm.h` (header-only, no compiled binaries touched, so it's safe
+for other ports on the same machine) rather than downgrading the submodule pin.
+
+[vitagl]: https://github.com/Rinnegatamante/vitaGL
+[vitashark]: https://github.com/Rinnegatamante/vitaShaRK
 
 Useful CMake options (pass as `-D...` to a manual `cmake` invocation, or edit the `option()` default in
 `CMakeLists.txt`):
-- `HIDE_VIRTUAL_GAMEPAD` (default `ON`) — hides the game's on-screen D-pad/action-button cluster (Vita
-  physical buttons are already mapped 1:1). Toggling this only changes whether
-  `zenonia_install_hide_dpad_hook()` (`loader/dynlib.c`) installs its hook.
+- `HIDE_VIRTUAL_GAMEPAD` (default `ON`) — hides the game's on-screen D-pad/action-button cluster at boot
+  (Vita physical buttons are already mapped 1:1). Toggling this CMake option only changes whether
+  `zenonia_install_hide_dpad_hook()` (`loader/dynlib.c`) installs its hook at all; when it's `ON`, the
+  player can still show/hide the cluster at runtime with L+R (edge-detected in `loader/main.c`'s input
+  loop, flips the same "active object count" field via `zenonia_toggle_dpad_visibility()` instead of only
+  ever zeroing it once). L alone is also mapped to Save (`btn_map`), so the L+R combo's L edge is diverted
+  away from that mapping while R is held, to avoid firing a save on every visibility toggle.
 - `ENABLE_VERBOSE_JNI_LOG` (default `OFF`) — logs every single FalsoJNI call. Only turn on to trace a
   specific JNI call; at `FALSOJNI_DEBUGLEVEL=0` the vast majority of the log becomes `[JNI]` noise and
   boot takes minutes (each line is a blocking `sceIoOpen`+`write`+`close`). Default level 2 still logs
@@ -52,8 +100,8 @@ console running VitaShell's FTP server: upload the compiled VPK to `ux0:download
 and run `clean_macos.sh` (strips macOS `._*` AppleDouble files, which break VPK installs). It hardcodes
 `VITA_IP` at the top of the file — update it to match the actual console's address.
 
-There is no emulator/CI test suite. Verification happens by installing the VPK on real hardware (or
-Vita3K) and reading the resulting log file (`ux0:data/zenonia3/logs/log_<timestamp>.txt`) and/or
+There is no emulator/CI test suite. Verification happens by installing the VPK on real hardware
+and reading the resulting log file (`ux0:data/zenonia3/logs/log_<timestamp>.txt`) and/or
 `.psp2dmp` crash dump. See the `so-crash-triage` skill for the exact cross-referencing procedure
 (log → `.psp2dmp` via `vita-parse-core` → symbol via `objdump -T` → disassembly via
 `arm-vita-eabi-objdump -M force-thumb` → matching pseudo-C in `decompiled_so/out_ghidra.c`).

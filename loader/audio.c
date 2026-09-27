@@ -3,6 +3,7 @@
  */
 
 #include <psp2/audioout.h>
+#include <psp2/io/dirent.h>
 #include <psp2/kernel/threadmgr.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,47 @@
 extern void game_log(const char *fmt, ...);
 
 #define SND_DIR "ux0:data/zenonia3/sound"
+
+/**
+ * @brief El motor pide R.raw.s000 + sndID: los resource ID de Android son
+ * consecutivos en orden alfabetico de los archivos EXISTENTES en res/raw,
+ * pero la numeracion original de esos archivos tiene huecos (falta s010,
+ * s019, ...) y sufijos irregulares (s116xx.ogg). sndID por lo tanto NO es
+ * el numero del nombre de archivo, es su posicion ordinal alfabetica.
+ * En vez de exigir un paso manual de renombrado antes de instalar, se
+ * escanea SND_DIR una vez y se ordena alfabeticamente para reconstruir esa
+ * misma asignacion de IDs directamente sobre los nombres originales del
+ * APK (verificado contra el registro SFX real: indice 10 = s011.ogg).
+ */
+#define MAX_SOUND_FILES 256
+static char sound_files[MAX_SOUND_FILES][256];
+static int num_sound_files = 0;
+
+static int sound_name_cmp(const void *a, const void *b) {
+    return strcmp((const char *) a, (const char *) b);
+}
+
+static void audio_scan_sound_dir(void) {
+    SceUID dfd = sceIoDopen(SND_DIR);
+    if (dfd < 0) {
+        game_log("[AUDIO] no se pudo abrir %s (0x%08x)\n", SND_DIR, dfd);
+        return;
+    }
+
+    SceIoDirent entry;
+    while (num_sound_files < MAX_SOUND_FILES && sceIoDread(dfd, &entry) > 0) {
+        if (SCE_S_ISDIR(entry.d_stat.st_mode)) continue;
+        size_t len = strlen(entry.d_name);
+        if (len < 5 || strcasecmp(entry.d_name + len - 4, ".ogg") != 0) continue;
+        strncpy(sound_files[num_sound_files], entry.d_name, sizeof(sound_files[0]) - 1);
+        sound_files[num_sound_files][sizeof(sound_files[0]) - 1] = '\0';
+        num_sound_files++;
+    }
+    sceIoDclose(dfd);
+
+    qsort(sound_files, num_sound_files, sizeof(sound_files[0]), sound_name_cmp);
+    game_log("[AUDIO] %d archivos .ogg indexados en %s\n", num_sound_files, SND_DIR);
+}
 
 #define AUDIO_RATE 44100
 #define AUDIO_GRAIN 512
@@ -165,6 +207,8 @@ void audio_init(void) {
         return;
     }
 
+    audio_scan_sound_dir();
+
     audio_mutex = sceKernelCreateMutex("zen3_audio_mutex", 0, 0, NULL);
     audio_running = 1;
     audio_thread_id = sceKernelCreateThread("zen3_audio", audio_thread,
@@ -191,8 +235,13 @@ void audio_play(int snd_id, int vol, int is_loop) {
         return;
     }
 
-    char path[128];
-    snprintf(path, sizeof(path), SND_DIR "/s%03d.ogg", snd_id);
+    if (snd_id < 0 || snd_id >= num_sound_files) {
+        game_log("[AUDIO] sndID %d fuera de rango (%d archivos indexados)\n", snd_id, num_sound_files);
+        return;
+    }
+
+    char path[288];
+    snprintf(path, sizeof(path), SND_DIR "/%s", sound_files[snd_id]);
 
     FILE *f = fopen(path, "rb");
     if (!f) {

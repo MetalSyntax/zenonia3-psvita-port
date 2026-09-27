@@ -1,0 +1,6 @@
+[submodule "lib/vitagl"]
+	path = lib/vitagl
+	url = https://github.com/Rinnegatamante/vitaGL
+[submodule "lib/vitashark"]
+	path = lib/vitashark
+	url = https://github.com/Rinnegatamante/vitaShaRK

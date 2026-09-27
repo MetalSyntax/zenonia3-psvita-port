@@ -18,10 +18,18 @@ Explanatory and architectural design notes extracted from source code and replac
 > - resto               -> BGM (isLoop) o stream one-shot (!isLoop)
 > y NexusSound.setVolume(vol/10): mVolume = (vol/10)/10.0f.
 >
-> Los archivos van en ux0:data/zenonia3/sound/sNNN.ogg donde NNN es el INDICE
-> ordinal del recurso contando desde s000 en orden alfabetico del res/raw
-> original (los resource IDs de Android son consecutivos y la numeracion de
-> archivos original tiene huecos -- ver port_progress.md Fase 5). El script
-> de stage del repo ya los copia renombrados a ux0_data/zenonia3/sound/.
+> El motor pide R.raw.s000 + sndID: los resource ID de Android son consecutivos
+> en orden alfabetico de los .ogg EXISTENTES en res/raw, pero los nombres
+> originales tienen huecos (falta s010, s019, ...) y sufijos irregulares
+> (s116xx.ogg), asi que sndID NO es el numero del nombre de archivo. Antes
+> hacia falta renombrar los archivos a mano antes de instalar; ahora
+> audio_init() escanea ux0:data/zenonia3/sound/ una vez, ordena los *.ogg
+> alfabeticamente y reconstruye esa misma asignacion de IDs directamente
+> sobre los nombres originales del APK (verificado: indice ordinal 10 ==
+> s011.ogg). Esto permite extraer res/raw/ tal cual a
+> ux0:data/zenonia3/sound/ sin ningun paso de renombrado -- una carpeta con
+> audio de una version de APK distinta a la que corre el motor (orden
+> ordinal desalineado) es la causa clasica de "sin musica"/SFX equivocado
+> (ver port_progress.md Fase 5).
 
 ---

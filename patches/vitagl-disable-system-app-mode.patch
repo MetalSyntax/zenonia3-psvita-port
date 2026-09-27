@@ -1,0 +1,31 @@
+diff --git a/source/gxm.c b/source/gxm.c
+index 29bf21a..6484ca2 100644
+--- a/source/gxm.c
++++ b/source/gxm.c
+@@ -363,6 +363,18 @@ void init_gxm(void) {
+ #endif
+
+ 	// Checking if the running application is a system one
++	//
++	// NOTE (Zenonia3-vita): this autodetection is disabled here. Zenonia 3 is a
++	// normal self-hosted VPK/self launched from LiveArea, never a genuine system
++	// app, but sceAppMgrGetBudgetInfo() returned success anyway on real hardware
++	// with this project's UNSAFE/NOASLR self + kubridge/taiHEN setup, flipping
++	// vitaGL into system_app_mode (shared-framebuffer presentation via
++	// sceSharedFbBegin instead of this app's own color surfaces/sceDisplaySetFrameBuf)
++	// -- that path never reaches the screen here, producing a permanent black
++	// screen from boot. The prebuilt vitaGL this project used before vendoring
++	// vitaGL from source (see CLAUDE.md) predates this autodetection entirely,
++	// which is why this regression only appeared after that change.
++#if 0
+ 	SceAppMgrBudgetInfo info;
+ 	info.size = sizeof(SceAppMgrBudgetInfo);
+ 	if (!sceAppMgrGetBudgetInfo(&info)) {
+@@ -371,6 +383,7 @@ void init_gxm(void) {
+ 		if (msaa_mode == SCE_GXM_MULTISAMPLE_NONE) // FIXME: For some reasons, disabling MSAA makes the shader patcher not able to compile fragment programs in sysapp mode...
+ 			msaa_mode = SCE_GXM_MULTISAMPLE_2X;
+ 	}
++#endif
+
+ 	// Initializing sceGxm init parameters
+ 	SceGxmInitializeParams gxm_init_params;

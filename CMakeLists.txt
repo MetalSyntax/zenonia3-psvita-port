@@ -75,6 +75,7 @@ set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d PARENTAL_LEVEL=1 -d ATTRIBUTE2=
 include_directories(
   ./common # para debugScreenPrintf()
   ./lib    # para <falso_jni/FalsoJNI.h>
+  ./lib/vitagl/source # vitaGL vendorizado (ver bloque vitaGL_lib mas abajo), antes del vitaGL.h del sysroot de vitasdk
 )
 
 link_directories(
@@ -97,9 +98,54 @@ add_executable(${PROJECT_NAME}
   ./lib/falso_jni/FalsoJNI_Logger.c
 )
 
+## vitaGL vendorizado en lib/vitagl/ (submodulo de Rinnegatamante/vitaGL) en
+## vez del libvitaGL.a global de vitasdk: la version prebuilt del SDK no
+## permite elegir flags de compilacion, y NO_SPLASHSCREEN=1 (-DSKIP_SPLASHSCREEN)
+## es justamente uno de esos flags -- quita el logo animado de vitaGL al
+## bootear (splashscreen.c), que tapaba el logo de Gamevil del juego.
+## Mismo patron ya probado en el port hermano Dungeon-Hunter-2-vita.
+set(VITAGL_MAKE_FLAGS_STR "NO_SPLASHSCREEN=1")
+separate_arguments(VITAGL_MAKE_FLAGS UNIX_COMMAND "${VITAGL_MAKE_FLAGS_STR}")
+set(VITAGL_STAMP "${CMAKE_BINARY_DIR}/vitagl.stamp")
+
+## @note custom_target (no add_custom_command con OUTPUT) para que esto se
+## reevalue en cada build -- un stamp basado en OUTPUT sin DEPENDS solo corre
+## una vez por arbol de build y no vuelve a disparar si VITAGL_MAKE_FLAGS_STR
+## cambia despues. build_vitagl.sh compara contra VITAGL_STAMP y solo hace
+## `make clean` cuando los flags realmente cambiaron (si no, make de abajo
+## es incremental).
+add_custom_target(vitaGL_lib
+  COMMAND rm -f "${VITAGL_STAMP}.tmp"
+  COMMAND echo "${VITAGL_MAKE_FLAGS_STR}" > "${VITAGL_STAMP}.tmp"
+  COMMAND bash "${CMAKE_SOURCE_DIR}/scripts/build_vitagl.sh" "${VITAGL_MAKE_FLAGS_STR}" "${VITAGL_STAMP}" "${CMAKE_SOURCE_DIR}/lib/vitagl" "${CMAKE_SOURCE_DIR}/patches"
+  COMMAND make -C "${CMAKE_SOURCE_DIR}/lib/vitagl" ${VITAGL_MAKE_FLAGS}
+  BYPRODUCTS "${CMAKE_SOURCE_DIR}/lib/vitagl/libvitaGL.a"
+  COMMENT "Building vitaGL with NO_SPLASHSCREEN=1..."
+)
+add_dependencies(${PROJECT_NAME} vitaGL_lib)
+
+## vitashark (Rinnegatamante/vitaShaRK) tambien vendorizado como submodulo,
+## por la misma razon que vitaGL: el libvitashark.a prebuilt de vdpm viene
+## del mismo mirror stale que el toolchain base (vitasdk-softfp/packages, sin
+## builds nuevos desde 2024-04-25) y le falta shark_set_shader_association_path,
+## que el vitaGL vendorizado de arriba SI llama (vgl.c) -- sin esto el link
+## final tira "undefined reference".
+add_custom_target(vitashark_lib
+  COMMAND make -C "${CMAKE_SOURCE_DIR}/lib/vitashark"
+  BYPRODUCTS "${CMAKE_SOURCE_DIR}/lib/vitashark/libvitashark.a"
+  COMMENT "Building vitaShaRK..."
+)
+add_dependencies(${PROJECT_NAME} vitashark_lib)
+
 target_link_libraries(${PROJECT_NAME}
-  vitaGL
-  vitashark
+  "${CMAKE_SOURCE_DIR}/lib/vitagl/libvitaGL.a"
+## @brief vitaGL trae un preprocesador de shaders en C++ (expression.cpp):
+## aunque el resto del proyecto es C, hace falta el runtime de C++ (new/
+## delete, std::string, __cxa_*/__gxx_personality_v0) para resolverlo.
+## Ver el comentario junto a game_cxa_type_match en loader/dynlib.c sobre
+## por que los stubs de C++ del shim del juego NO usan los nombres reales.
+  stdc++
+  "${CMAKE_SOURCE_DIR}/lib/vitashark/libvitashark.a"
   mathneon
   m
 ## @brief Intrinsics NEON (vld1q_s32/vcvtq_f32_s32/vmulq_f32) en vez del loop escalar para la conversion GL_FIXED (Q16.

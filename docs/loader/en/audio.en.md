@@ -18,10 +18,18 @@ Explanatory and architectural design notes extracted from source code and replac
 > - rest -> BGM (isLoop) or stream one-shot (!isLoop)
 > and NexusSound.setVolume(vol/10): mVolume = (vol/10)/10.0f.
 >
-> The files go in ux0:data/zenonia3/sound/sNNN.ogg where NNN is the INDEX
-> ordinal of the resource counting from s000 in alphabetical order of res/raw
-> original (the Android resource IDs are consecutive and the numbering of
-> original files have gaps -- see port_progress.md Phase 5). The script
-> from stage of the repo and copies them renamed to ux0_data/zenonia3/sound/.
+> The engine requests R.raw.s000 + sndID: Android resource IDs are consecutive
+> in alphabetical order of the .ogg files that exist in res/raw, but the
+> original filenames have gaps (s010, s019, ... are missing) and irregular
+> suffixes (s116xx.ogg), so sndID is NOT the number embedded in the filename.
+> Manually renaming files before install used to be required; audio_init()
+> now scans ux0:data/zenonia3/sound/ once, sorts the *.ogg entries
+> alphabetically, and reconstructs that same ID assignment directly from the
+> APK's original res/raw filenames (verified: ordinal index 10 == s011.ogg).
+> This means players can extract res/raw/ straight into
+> ux0:data/zenonia3/sound/ with no renaming step -- a stale copy of an
+> older or newer APK's audio in that folder (mismatched ordinal order) is
+> the classic cause of missing BGM / wrong SFX playing (see
+> port_progress.md Phase 5).
 
 ---

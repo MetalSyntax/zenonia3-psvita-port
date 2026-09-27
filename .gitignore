@@ -42,7 +42,9 @@ Zenonia3.png
 Gemini_Generated_Image_*.png
 ux0_data
 # Exclude copyrighted files
-lib/
+lib/*
+!lib/vitagl
+!lib/vitashark
 *.so
 font.ttf
 androidui/

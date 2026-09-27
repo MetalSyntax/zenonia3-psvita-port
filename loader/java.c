@@ -678,9 +678,13 @@ void Zenonia_GFA_SetStringFromUnicode(jmethodID id, va_list args) {
 }
 
 /**
- * @brief (F[I)I -- maxWidth, wwPositions[].
- */
-desreferencia SIN chequ....
+ * @brief Familia GFA_Draw*, GFA_Measure*: devuelven un float[] que el codigo nativo
+ * desreferencia SIN chequear NULL (confirmado con vita-parse-core: Data abort
+ * real dentro de GFA_DrawFont+0x60, justo despues del GetFloatArrayElements
+ * que devolvia NULL porque el metodo no estaba registrado -- ver
+ * port_progress.md Fase 3.5). Por eso estos NO pueden devolver NULL nunca en
+ * el camino normal, a diferencia de los Object no registrados que dan NULL
+ * "seguro" en otras partes del motor.
  * @note Ver docs/loader/java.md para el razonamiento de diseño.
  */
 static JavaDynArray *gfa_persistent_floats(JavaDynArray **slot, int len) {

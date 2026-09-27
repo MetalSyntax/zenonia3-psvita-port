@@ -195,6 +195,7 @@ static const struct { unsigned int btn; int hal; } btn_map[] = {
 extern volatile int g_ui_status;
 extern void zenonia_install_array_hooks(void);
 extern void zenonia_install_hide_dpad_hook(so_module *mod);
+extern void zenonia_toggle_dpad_visibility(void);
 
 static GLuint splash_tex = 0;
 
@@ -265,7 +266,8 @@ void gl_init() {
 /**
  * @brief vitaGL's internal vsync only expects 1 vblank (panel at 60Hz).
  */
-    vglInitExtended(0, 960, 544, 6 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE);
+    GLboolean vgl_init_ok = vglInitExtended(0, 960, 544, 6 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE);
+    game_log("[GL] vglInitExtended ret=%d\n", (int) vgl_init_ok);
 #ifdef LOCK_FPS_30
 /**
  * @brief Conservative factory clocks (CPU 333MHz / bus 166MHz / GPU 111MHz).
@@ -317,6 +319,7 @@ int main() {
 		game_log("SoLoader inicializado. Iniciando vitaGL...\n");
 		gl_init();
 		game_log("vitaGL inicializado.\n");
+		log_active_frame_buf("post-gl_init");
 		audio_init();
 		splash_load();
 		androidui_load(SCREEN_W, SCREEN_H);
@@ -379,6 +382,9 @@ int main() {
 
 			if ((frame++ % 120) == 0) {
 				game_log("frame %d alive, touch.reportNum=%d pad.buttons=0x%08x ui_status=%d\n", frame, touch.reportNum, (unsigned int) pad.buttons, g_ui_status);
+				log_active_frame_buf("main-loop");
+				GLenum gl_err = glGetError();
+				if (gl_err != GL_NO_ERROR) game_log("[GL] glGetError=0x%04x en frame %d\n", gl_err, frame);
 			}
 
 /**< @brief The SCREEN size, not the buffer size. */
@@ -400,7 +406,33 @@ int main() {
 				released &= ~(SCE_CTRL_UP | SCE_CTRL_DOWN);
 			}
 
+/**
+ * @brief L+R toggles the virtual dpad/action-button cluster on/off at runtime.
+ * L alone is also mapped to HAL_KEY_SAVE (btn_map), so while R is held the L
+ * press/release edge is diverted here instead of falling into the generic
+ * btn_map loop below -- otherwise every toggle would also fire a save.
+ */
+#define DPAD_TOGGLE_COMBO (SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER)
+			static int l_mapped_to_save = 0;
+			if ((pad.buttons & DPAD_TOGGLE_COMBO) == DPAD_TOGGLE_COMBO &&
+			    (old_buttons & DPAD_TOGGLE_COMBO) != DPAD_TOGGLE_COMBO) {
+				zenonia_toggle_dpad_visibility();
+			}
+			if (pressed & SCE_CTRL_LTRIGGER) {
+				l_mapped_to_save = !(pad.buttons & SCE_CTRL_RTRIGGER);
+				if (l_mapped_to_save)
+					queue_input_event(MH_KEY_PRESSEVENT, HAL_KEY_SAVE, 0, 0);
+			}
+			if (released & SCE_CTRL_LTRIGGER) {
+				if (l_mapped_to_save)
+					queue_input_event(MH_KEY_RELEASEEVENT, HAL_KEY_SAVE, 0, 0);
+			}
+			pressed  &= ~SCE_CTRL_LTRIGGER;
+			released &= ~SCE_CTRL_LTRIGGER;
+
 			for (int i = 0; i < BTN_MAP_COUNT; i++) {
+				if (btn_map[i].btn == SCE_CTRL_LTRIGGER)
+					continue;
 				if (pressed & btn_map[i].btn)
 					queue_input_event(MH_KEY_PRESSEVENT, btn_map[i].hal, 0, 0);
 				if (released & btn_map[i].btn)

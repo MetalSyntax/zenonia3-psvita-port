@@ -58,7 +58,19 @@ your firmware before asking for support.
 console. If you don't, use [ShaRKBR33D][shrkbrd] to get it quickly and easily.
 
 - <u>Legally</u> obtain your copy of Zenonia 3 in a form
-of an `.apk` file. Make sure that your game is the correct supported version.
+of an `.apk` file. **The only supported version is 1.0.2** — other versions
+ship a different `libgameDSO.so` (different code/offsets) and **will crash**:
+
+    | Field           | Value                                        |
+    |-----------------|----------------------------------------------|
+    | Version name    | `1.0.2` (versionCode `102`)                  |
+    | Package         | `com.gamevil.zenonia3.global.multilingual`   |
+    | APK SHA-1       | `09c3994cbb89fa7bd7db3d3b27e53b8079396520`   |
+    | `libgameDSO.so` SHA-1 | `97cf9cd00fed65e5cb424a3f474ce8a884b098b3` |
+
+    You can verify the version inside the APK's `AndroidManifest.xml`
+    (`android:versionName="1.0.2"`) or by comparing the SHA-1 of
+    `lib/armeabi/libgameDSO.so` with the one above.
 
     - If you have it installed on your phone, you can 
         [get all the required files directly from it][unpack-on-phone]
@@ -69,7 +81,7 @@ of an `.apk` file. Make sure that your game is the correct supported version.
     - Extract the `assets/` folder to `ux0:data/zenonia3/assets/`
     - Extract `res/drawable/` to `ux0:data/zenonia3/drawable/`
     - Extract `assets/html/` to `ux0:data/zenonia3/html/`
-    - Extract audio files to `ux0:data/zenonia3/sound/`
+    - Extract all `res/raw/*.ogg` files (original names, no renaming needed) to `ux0:data/zenonia3/sound/`
 
 - Install `Zenonia3.vpk` (from [Releases][latest-release]).
 
@@ -107,6 +119,7 @@ Controls
 |      ![squar]       | Map / Quick Item                        |
 |      ![trian]       | Skip / Special                          |
 |      ![trigl]       | Save                                    |
+| ![trigl] + ![trigr] | Show / Hide virtual on-screen buttons   |
 | ![start] + ![selec] | Quit Game                               |
 
 FAQ
@@ -123,6 +136,14 @@ and kubridge can not run correctly. Try disabling everything but the most
 necessary *kernel* plugins, reboot, and try again.
 
 If the problem persists after reboot, please [post a new issue][issue].
+
+❓ **The game crashes on boot / right after the logo, but my plugins are fine
+and other Android ports work.**<br>
+❕ Almost always a wrong game version. Only Zenonia 3 **v1.0.2** is supported —
+check the `libgameDSO.so` SHA-1 listed in the
+<a href="#setup-instructions-for-players">Setup Instructions</a>. Also make sure
+`ux0:data/zenonia3/` does not contain leftover files from another version
+(especially `sound/` and `assets/`).
 
 ❓ **Any other question?**<br>
 ❕ Check the following "Known Issues" section. If nothing there looks like the
@@ -153,8 +174,13 @@ git clone https://github.com/vitasdk-softfp/vdpm
 All the required libraries should get installed automatically if you follow the
 installation process from https://vitasdk.org/.
 
-After all these requirements are met, you can compile the loader with the
-following commands:
+After all these requirements are met, fetch the vendored vitaGL/vitaShaRK submodules once
+(built from source with this project's own flags/versions instead of the vitasdk-wide ones):
+```bash
+git submodule update --init
+```
+
+Then compile the loader with the following commands:
 
 ```bash
 cmake -Bbuild .

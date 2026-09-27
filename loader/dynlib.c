@@ -42,16 +42,44 @@ static so_hook g_player_controller_ctor_hook;
  */
 #define GVUI_CONTROLLER_ACTIVE_COUNT_OFFSET 0x19c
 
+/**
+ * @brief Instance + real (pre-zeroed) active-object count saved by the one-shot
+ * ctor hook below, so zenonia_toggle_dpad_visibility() can flip the same field
+ * back and forth at runtime (L+R) instead of only ever zeroing it once at boot.
+ */
+static void *g_player_controller_instance = NULL;
+static int g_player_controller_real_active_count = 0;
+static volatile int g_dpad_hidden = 1;
+
 static void GVUIPlayerController_ctor_hook(void *this) {
 /**
  * @brief Call AFTER so_relocate/so_resolve (you need the module already with dynsym/dynstr resolved, see so_symbol()) and BEFORE the first call to.
  */
     so_unhook(&g_player_controller_ctor_hook);
     ((void (*)(void *)) g_player_controller_ctor_hook.thumb_addr)(this);
+    g_player_controller_instance = this;
+    g_player_controller_real_active_count = *(int *)((char *) this + GVUI_CONTROLLER_ACTIVE_COUNT_OFFSET);
     *(int *)((char *) this + GVUI_CONTROLLER_ACTIVE_COUNT_OFFSET) = 0;
     game_log("[HideDpad] GVUIPlayerController construido en %p -- contador de objetos activos puesto a 0 (Draw/touch de la cruceta y los 5 botones de accion deshabilitados)\n", this);
 }
 #endif
+
+/**
+ * @brief Toggles the dpad/action-button cluster's active-object count between
+ * 0 (hidden) and its real value (visible), so Draw()/PointerPress() see it as
+ * empty or full without ever re-running the constructor. No-op if
+ * HIDE_VIRTUAL_GAMEPAD was OFF at compile time (no hook installed, cluster was
+ * never hidden) or the instance hasn't been constructed yet.
+ */
+void zenonia_toggle_dpad_visibility(void) {
+#ifdef ZENONIA_HIDE_DPAD_UI
+    if (!g_player_controller_instance) return;
+    g_dpad_hidden = !g_dpad_hidden;
+    *(int *)((char *) g_player_controller_instance + GVUI_CONTROLLER_ACTIVE_COUNT_OFFSET) =
+        g_dpad_hidden ? 0 : g_player_controller_real_active_count;
+    game_log("[HideDpad] L+R -> cruceta/botones %s\n", g_dpad_hidden ? "ocultos" : "visibles");
+#endif
+}
 
 /**
  * @brief Call AFTER so_relocate/so_resolve (you need the module already with dynsym/dynstr resolved, see so_symbol()) and BEFORE the first call to.
@@ -600,12 +628,23 @@ void glOrthox_wrapper(GLint left, GLint right, GLint bottom, GLint top, GLint zN
 }
 
 
-// Stubs de C++/GCC
-void __cxa_begin_cleanup() {}
-void __cxa_call_unexpected() {}
+/**
+ * @brief Stubs de C++/GCC para el shim table del juego (default_dynlib[]),
+ * NO para el propio loader: el juego nunca lanza excepciones reales, asi
+ * que estos no-ops le bastan. Nombrados con prefijo game_ (en vez de los
+ * nombres reales __cxa_*) porque libstdc++.a real SI se enlaza en el
+ * loader (vitaGL trae un preprocesador de shaders en C++) y esos simbolos
+ * reales viven en el mismo objeto que __gxx_personality_v0 -- si esta
+ * funcion tuviera el nombre real, el linker tira "multiple definition" en
+ * cuanto libstdc++.a se extrae por __gxx_personality_v0 (eh_arm.o trae los
+ * tres juntos). La tabla de abajo sigue exponiendo el nombre real por
+ * string al .so cargado, que es lo unico que le importa a so_resolve().
+ */
+void game_cxa_begin_cleanup() {}
+void game_cxa_call_unexpected() {}
 int __cxa_guard_acquire(int* g) { return !*(char*)(g); }
 void __cxa_guard_release(int* g) { *(char*)g = 1; }
-void __cxa_type_match() {}
+void game_cxa_type_match() {}
 void __gnu_Unwind_Find_exidx() {}
 void __stack_chk_fail() {}
 
@@ -790,11 +829,11 @@ so_default_dynlib default_dynlib[] = {
     { "__cxa_atexit", (uintptr_t)&__cxa_atexit },
     { "__cxa_finalize", (uintptr_t)&__cxa_finalize },
     { "__aeabi_atexit", (uintptr_t)&__aeabi_atexit },
-    { "__cxa_begin_cleanup", (uintptr_t)&__cxa_begin_cleanup },
-    { "__cxa_call_unexpected", (uintptr_t)&__cxa_call_unexpected },
+    { "__cxa_begin_cleanup", (uintptr_t)&game_cxa_begin_cleanup },
+    { "__cxa_call_unexpected", (uintptr_t)&game_cxa_call_unexpected },
     { "__cxa_guard_acquire", (uintptr_t)&__cxa_guard_acquire },
     { "__cxa_guard_release", (uintptr_t)&__cxa_guard_release },
-    { "__cxa_type_match", (uintptr_t)&__cxa_type_match },
+    { "__cxa_type_match", (uintptr_t)&game_cxa_type_match },
     { "__gnu_Unwind_Find_exidx", (uintptr_t)&__gnu_Unwind_Find_exidx },
     { "__stack_chk_fail", (uintptr_t)&__stack_chk_fail },
     { "__stack_chk_guard", (uintptr_t)&__stack_chk_guard },
