@@ -34,8 +34,8 @@ vitaGL and vitaShaRK are vendored as git submodules (`lib/vitagl`/`lib/vitashark
 specific upstream commit of [Rinnegatamante/vitaGL][vitagl]/[Rinnegatamante/vitaShaRK][vitashark]) and
 built from source by `CMakeLists.txt`'s `vitaGL_lib`/`vitashark_lib` custom targets, instead of linking the
 prebuilt `.a`s from the VITASDK install. Two independent reasons:
-- It's what lets the project pick its own vitaGL compile flags (currently `NO_SPLASHSCREEN=1`, which
-  removes vitaGL's own animated boot splashscreen; see `VITAGL_MAKE_FLAGS_STR`) without touching the
+- It's what lets the project pick its own vitaGL compile flags (currently `SOFTFP_ABI=1 NO_SPLASHSCREEN=1`;
+  see `VITAGL_MAKE_FLAGS_STR`) without touching the
   system-wide VITASDK install other ports on the same machine also link against. Changing that flags
   string requires a full `lib/vitagl` rebuild — `scripts/build_vitagl.sh` (tracked in this repo, *not*
   inside the submodule checkout, so a fresh clone has it) compares against a stamp file and
@@ -46,6 +46,13 @@ prebuilt `.a`s from the VITASDK install. Two independent reasons:
   and a `vitaShaRK` build new enough to export `shark_set_shader_association_path`, which current vitaGL
   calls unconditionally from `vgl.c`). Vendoring both from their real upstream repos sidesteps that stale
   mirror entirely, for this project only.
+
+**`SOFTFP_ABI=1` is mandatory**, not an optimization: this vitasdk (softfp mirror) compiles the loader
+with `-mfloat-abi=softfp`, and the prebuilt vitaGL the project used before vendoring was built the same
+way. Without it vitaGL doesn't define `HAVE_SOFTFP_ABI` and takes incompatible code paths — **permanent
+black screen from boot** with audio/input working and no crash. Same root cause confirmed on hardware in
+the sibling `Zenonia4-vita` (its `port_progress.md` Phase 124), where the `system_app_mode` patch below
+was *not* enough on its own. `NO_SPLASHSCREEN=1` removes vitaGL's own animated boot splashscreen.
 
 **`patches/vitagl-*.patch`** hold this project's own fixes on top of the pinned upstream vitaGL commit,
 applied automatically (and idempotently — safe to re-run every build) by `scripts/build_vitagl.sh` before `make`.
@@ -58,8 +65,8 @@ prebuilt vitaGL this project used before vendoring. On real hardware, that autod
 this is a system app" for this project's UNSAFE/NOASLR self + kubridge/taiHEN setup even though Zenonia 3
 is an ordinary LiveArea-launched VPK — the shared-framebuffer path it then took never reached the physical
 display, producing a **permanent black screen from boot**. If a future vitaGL commit bump reintroduces a
-black screen, check whether this patch still applies cleanly (`git apply --check`) before assuming a new
-regression.
+black screen, first check that `SOFTFP_ABI=1` is still in `VITAGL_MAKE_FLAGS_STR`, then whether this patch
+still applies cleanly (`git apply --check`), before assuming a new regression.
 
 **Toolchain version note:** the pinned vitaGL commit needs `SceGxm.h` flags
 (`SCE_GXM_INITIALIZE_FLAG_EXTENDED_FORMAT` etc.) that ship in current `vitasdk/vita-headers` but not in the

@@ -1057,3 +1057,21 @@ línea (parser + rasterizador con "runs" de color), no implementado en esta pasa
 **Verificado:** compila limpio (`build.sh`, sin warnings nuevos). El extractor de estilos se probó de
 forma aislada (nativo, sin Vita) contra los 2 archivos reales -- marcadores confirmados en las líneas
 correctas.
+
+## Fase 7: pantalla negra permanente desde el arranque tras vendorizar vitaGL -- falta `SOFTFP_ABI=1` (2026-09-27)
+
+**Síntoma:** con la vitaGL vendorizada (`lib/vitagl`, commit `cd3791e`) la pantalla queda negra desde el
+arranque. El parche `patches/vitagl-disable-system-app-mode.patch` no alcanzó.
+
+**Causa (por paridad con Zenonia4-vita, `port_progress.md` Fase 124, confirmada en consola allí):** vitaGL
+se compilaba solo con `NO_SPLASHSCREEN=1`. El vitasdk de esta máquina (mirror softfp) compila el loader
+con `-mfloat-abi=softfp` y el `libvitaGL.a` prebuilt que funcionaba antes venía construido igual. Sin
+`SOFTFP_ABI=1` vitaGL no define `HAVE_SOFTFP_ABI` y toma caminos incompatibles -> presentación muerta aunque
+cada llamada GL "funcione". En Z4 el mismo parche de `system_app_mode` tampoco lo arreglaba por sí solo.
+
+**Fix:** `VITAGL_MAKE_FLAGS_STR = "SOFTFP_ABI=1 NO_SPLASHSCREEN=1"` (`CMakeLists.txt`). Verificado con
+`make -n` que gcc recibe `-mfloat-abi=softfp -DHAVE_SOFTFP_ABI` (el Makefile de vitaGL no imprime los
+comandos, así que el log de build no lo muestra) y que el stamp de flags forzó `make clean` + rebuild
+completo de la lib. El parche de `system_app_mode` se mantiene (Z4 también lo conserva).
+
+**Verificado en consola (2026-09-27):** el usuario confirma que la imagen vuelve a verse con este build.

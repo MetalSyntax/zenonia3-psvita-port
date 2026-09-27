@@ -104,7 +104,15 @@ add_executable(${PROJECT_NAME}
 ## es justamente uno de esos flags -- quita el logo animado de vitaGL al
 ## bootear (splashscreen.c), que tapaba el logo de Gamevil del juego.
 ## Mismo patron ya probado en el port hermano Dungeon-Hunter-2-vita.
-set(VITAGL_MAKE_FLAGS_STR "NO_SPLASHSCREEN=1")
+##
+## SOFTFP_ABI=1 es OBLIGATORIO: el toolchain de este vitasdk (mirror softfp)
+## compila el loader con -mfloat-abi=softfp, y el libvitaGL.a prebuilt que
+## funcionaba antes de vendorizar venia construido con ese ABI. Sin el flag,
+## vitaGL no define HAVE_SOFTFP_ABI y toma caminos de codigo incompatibles ->
+## pantalla negra permanente desde el arranque (sonido/input OK, cero crashes).
+## Misma causa raiz confirmada en consola en Zenonia4-vita (port_progress.md
+## Fase 124); alli el parche de system_app_mode NO alcanzaba por si solo.
+set(VITAGL_MAKE_FLAGS_STR "SOFTFP_ABI=1 NO_SPLASHSCREEN=1")
 separate_arguments(VITAGL_MAKE_FLAGS UNIX_COMMAND "${VITAGL_MAKE_FLAGS_STR}")
 set(VITAGL_STAMP "${CMAKE_BINARY_DIR}/vitagl.stamp")
 
@@ -120,7 +128,7 @@ add_custom_target(vitaGL_lib
   COMMAND bash "${CMAKE_SOURCE_DIR}/scripts/build_vitagl.sh" "${VITAGL_MAKE_FLAGS_STR}" "${VITAGL_STAMP}" "${CMAKE_SOURCE_DIR}/lib/vitagl" "${CMAKE_SOURCE_DIR}/patches"
   COMMAND make -C "${CMAKE_SOURCE_DIR}/lib/vitagl" ${VITAGL_MAKE_FLAGS}
   BYPRODUCTS "${CMAKE_SOURCE_DIR}/lib/vitagl/libvitaGL.a"
-  COMMENT "Building vitaGL with NO_SPLASHSCREEN=1..."
+  COMMENT "Building vitaGL with ${VITAGL_MAKE_FLAGS_STR}..."
 )
 add_dependencies(${PROJECT_NAME} vitaGL_lib)
 
