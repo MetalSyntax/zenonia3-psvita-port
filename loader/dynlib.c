@@ -180,6 +180,9 @@ void *convert_rgb565_to_rgba8888(const void *pixels, int width, int height) {
 /**
  * @brief The engine uploads its internal software framebuffer (400x240, see Phase 1 of the plan) in RGB565.
  */
+GLint g_engine_fb_tex = 0;
+int g_engine_fb_tex_w = 0, g_engine_fb_tex_h = 0;
+
 void glTexImage2D_wrapper(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels) {
     static int img_log = 0;
     if (img_log < 10) {
@@ -194,6 +197,11 @@ void glTexImage2D_wrapper(GLenum target, GLint level, GLint internalformat, GLsi
             uint16_t *p = (uint16_t *)pixels;
             game_log("  -> First 4 pixels: %04x %04x %04x %04x\n", p[0], p[1], p[2], p[3]);
         }
+        // The engine's only RGB565 texture is its software framebuffer: remembered so the Vita
+        // options menu can show the last game frame (dimmed) behind it while the game is paused.
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &g_engine_fb_tex);
+        g_engine_fb_tex_w = width;
+        g_engine_fb_tex_h = height;
 #if defined(RGB565_MODE_NATIVE)
         glTexImage2D(target, level, GL_RGB, width, height, border, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, pixels);
 #else

@@ -169,6 +169,52 @@ static const androidui_menu_hit MENU_BUTTON_HIT[] = {
     ANDROIDUI_MENU_HIT_ABOUT,
 };
 
+static int g_menu_cursor = -1; /* index into MENU_BUTTONS, -1 = hidden */
+
+void androidui_menu_cursor_move(int delta) {
+    if (g_menu_cursor < 0) {
+        g_menu_cursor = 2; /* first press only shows it, on NEW GAME */
+        return;
+    }
+    g_menu_cursor += delta;
+    if (g_menu_cursor < 0) g_menu_cursor = 0;
+    if (g_menu_cursor >= (int) MENU_BUTTON_COUNT) g_menu_cursor = MENU_BUTTON_COUNT - 1;
+}
+
+void androidui_menu_cursor_hide(void) { g_menu_cursor = -1; }
+
+androidui_menu_hit androidui_menu_cursor_hit(void) {
+    return g_menu_cursor < 0 ? ANDROIDUI_MENU_HIT_NONE : MENU_BUTTON_HIT[g_menu_cursor];
+}
+
+/* Carnivores-style highlight: white L-shaped corners around the button, no fill. Drawn with a 1x1
+ * white texture through androidui_draw_quad() -- the exact GL state the menu art already uses --
+ * because an untextured draw makes vitaGL build a new fixed-function shader at runtime, which
+ * coincided with the 2-6 fps stretch in log_002 while the old filled cursor was on screen. */
+static androidui_tex g_tex_white = { "(white)" };
+
+static void draw_menu_cursor(float x, float y, float w, float h) {
+    if (!g_tex_white.tex) {
+        static const uint32_t white = 0xFFFFFFFFu;
+        glGenTextures(1, &g_tex_white.tex);
+        glBindTexture(GL_TEXTURE_2D, g_tex_white.tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &white);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        g_tex_white.w = g_tex_white.h = 1;
+    }
+    const float t = 3.0f, l = 14.0f;           /* thickness, arm length */
+    const float x0 = x - t, y0 = y - t, x1 = x + w, y1 = y + h;
+    androidui_draw_quad(&g_tex_white, x0, y0, l, t);           /* top-left */
+    androidui_draw_quad(&g_tex_white, x0, y0, t, l);
+    androidui_draw_quad(&g_tex_white, x1 + t - l, y0, l, t);   /* top-right */
+    androidui_draw_quad(&g_tex_white, x1, y0, t, l);
+    androidui_draw_quad(&g_tex_white, x0, y1, l, t);           /* bottom-left */
+    androidui_draw_quad(&g_tex_white, x0, y1 + t - l, t, l);
+    androidui_draw_quad(&g_tex_white, x1 + t - l, y1, l, t);   /* bottom-right */
+    androidui_draw_quad(&g_tex_white, x1, y1 + t - l, t, l);
+}
+
 androidui_menu_hit androidui_menu_hit_test(float sx, float sy, int screen_w, int screen_h) {
     float sw = (float) screen_w, sh = (float) screen_h;
     for (unsigned int i = 0; i < MENU_BUTTON_COUNT; i++) {
@@ -279,6 +325,8 @@ void androidui_draw(int ui_status, int screen_w, int screen_h) {
             float bx = b->left400 * sw / 400.0f;
             float by = b->top240 * sh / 240.0f;
             androidui_draw_quad(b->tex, bx, by, (float) b->tex->w, (float) b->tex->h);
+            if ((int) i == g_menu_cursor)
+                draw_menu_cursor(bx, by, (float) b->tex->w, (float) b->tex->h);
         }
     } else if (ui_status == 5 || ui_status == 4) {
 /**< @brief Error 500 (Server Error). */

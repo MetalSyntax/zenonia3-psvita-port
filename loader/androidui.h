@@ -22,6 +22,13 @@ typedef enum {
 
 androidui_menu_hit androidui_menu_hit_test(float sx, float sy, int screen_w, int screen_h);
 
+/* Main-menu cursor for the physical buttons: a highlight frame the d-pad moves across the 6
+ * buttons (left to right, the order they sit on the arc). Hidden until the first d-pad press;
+ * touching the screen hides it again. */
+void androidui_menu_cursor_move(int delta);
+void androidui_menu_cursor_hide(void);
+androidui_menu_hit androidui_menu_cursor_hit(void); /* NONE while hidden */
+
 /**
  * @brief Which menu button (if any) falls under (sx,sy).
  */

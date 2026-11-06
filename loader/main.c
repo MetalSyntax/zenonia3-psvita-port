@@ -48,7 +48,7 @@ unsigned int sceLibcHeapSize = 4 * 1024 * 1024; // 4 MB para SCE Libc (system li
  * @brief One log file per run, with timestamp, inside logs/.
  */
 void game_log(const char *fmt, ...);
-static SceUInt64 log_t0;
+static SceUInt64 log_t0, log_last_flush;
 static int log_line_start = 1;
 
 /**
@@ -75,6 +75,8 @@ void init_log() {
     snprintf(log_path, sizeof(log_path), LOG_DIR "/log_%03d.log", n);
     log_t0 = sceKernelGetProcessTimeWide();
     log_file = fopen(log_path, "w");
+    // Buffered: a fflush per line cost ~3s of a ~4.4s save load (370 asset lines, log_002).
+    if (log_file) setvbuf(log_file, NULL, _IOFBF, 64 * 1024);
 
     char date[32] = "";
     time_t t = time(NULL);
@@ -98,7 +100,14 @@ void game_log(const char *fmt, ...) {
         size_t len = strlen(string);
         log_line_start = len > 0 && string[len - 1] == '\n';
         fputs(string, log_file);
-        fflush(log_file);
+        // Written out once a second, and right away for anything that may precede a crash.
+        // ponytail: a hard crash can lose up to ~1s of routine lines; the crash dump covers that.
+        SceUInt64 now = sceKernelGetProcessTimeWide();
+        if (now - log_last_flush >= 1000000 || strstr(string, "ERR") || strstr(string, "WARN") ||
+            strstr(string, "FATAL")) {
+            fflush(log_file);
+            log_last_flush = now;
+        }
     }
 }
 
@@ -202,6 +211,29 @@ static void queue_input_event(int type, int p1, int p2, int p3) {
         event_queue[eq_tail].p3 = p3;
         eq_tail = next;
     }
+}
+
+/**
+ * @brief Main-menu button -> the event its Android ImageButton sent (Natives.java). Shared by touch
+ * and the d-pad cursor. 0 if nothing was hit.
+ */
+static int press_menu_button(androidui_menu_hit hit) {
+    int key;
+    switch (hit) {
+        case ANDROIDUI_MENU_HIT_COMMUNITY: key = HAL_KEY_LEFT;  break;
+        case ANDROIDUI_MENU_HIT_OPTIONS:   key = HAL_KEY_UP;    break;
+        case ANDROIDUI_MENU_HIT_NEWGAME:   key = HAL_KEY_OK;    break;
+        case ANDROIDUI_MENU_HIT_HELP:      key = HAL_KEY_DOWN;  break;
+        case ANDROIDUI_MENU_HIT_ABOUT:     key = HAL_KEY_RIGHT; break;
+        case ANDROIDUI_MENU_HIT_CONTINUE:
+            queue_input_event(NEXUS_HAL_REPLY_YESNO, NEXUS_HAL_FIRST_MOVE_REPLY_PAGE, 0, 0);
+            return 1;
+        default:
+            return 0;
+    }
+    queue_input_event(MH_KEY_PRESSEVENT, key, 0, 0);
+    queue_input_event(MH_KEY_RELEASEEVENT, key, 0, 0);
+    return 1;
 }
 
 /**
@@ -443,6 +475,23 @@ int main() {
 				apply_fps();
 				suppressed = pad.buttons;
 			}
+			// Hotkeys (outside the menu): R + L toggles the on-screen buttons, R + Select the 30/22 fps.
+			// The combo's buttons are kept out of the actions until released (L is Save by default).
+#define COMBO_VBUTTONS (SCE_CTRL_RTRIGGER | SCE_CTRL_LTRIGGER)
+#define COMBO_FPS      (SCE_CTRL_RTRIGGER | SCE_CTRL_SELECT)
+			if (!vitamenu_active() && !menu_was_open) {
+				if ((pad.buttons & COMBO_VBUTTONS) == COMBO_VBUTTONS && (old_buttons & COMBO_VBUTTONS) != COMBO_VBUTTONS) {
+					cfg_vbuttons_opacity = cfg_vbuttons_opacity ? 0 : 100;
+					config_save();
+				}
+				if ((pad.buttons & COMBO_FPS) == COMBO_FPS && (old_buttons & COMBO_FPS) != COMBO_FPS) {
+					cfg_fps = cfg_fps == 30 ? 22 : 30;
+					apply_fps();
+					config_save();
+				}
+				if ((pad.buttons & SCE_CTRL_RTRIGGER) && (pad.buttons & (SCE_CTRL_LTRIGGER | SCE_CTRL_SELECT)))
+					suppressed |= pad.buttons & (SCE_CTRL_RTRIGGER | SCE_CTRL_LTRIGGER | SCE_CTRL_SELECT);
+			}
 			suppressed &= pad.buttons;
 			old_buttons = pad.buttons;
 
@@ -456,6 +505,21 @@ int main() {
 				if (acts & (1u << ACT_DOWN)) androidui_scroll_info_text(g_ui_status,  8.0f, SCREEN_W, SCREEN_H);
 				acts &= ~((1u << ACT_UP) | (1u << ACT_DOWN));
 			}
+			static uint32_t old_raw_acts = 0;
+			uint32_t raw_acts = acts;
+			if (g_ui_status == 2) {
+				// MAINMENU: the d-pad moves a highlight over the 6 buttons and OK presses it, instead of
+				// each direction firing a button straight away (Left = COMMUNITY, Up = OPTIONS, ...).
+				uint32_t fresh = raw_acts & ~old_raw_acts;
+				if (fresh & ((1u << ACT_LEFT) | (1u << ACT_UP)))    androidui_menu_cursor_move(-1);
+				if (fresh & ((1u << ACT_RIGHT) | (1u << ACT_DOWN))) androidui_menu_cursor_move(1);
+				if (fresh & (1u << ACT_OK)) {
+					if (!press_menu_button(androidui_menu_cursor_hit()))
+						androidui_menu_cursor_move(0); // OK with no highlight just shows it
+				}
+				acts &= ~((1u << ACT_UP) | (1u << ACT_DOWN) | (1u << ACT_LEFT) | (1u << ACT_RIGHT) | (1u << ACT_OK));
+			}
+			old_raw_acts = raw_acts;
 			for (int a = 0; a < ACT_COUNT; a++) {
 				uint32_t bit = 1u << a;
 				if ((acts ^ old_acts) & bit)
@@ -483,41 +547,8 @@ int main() {
 						queue_input_event(MH_KEY_RELEASEEVENT, HAL_KEY_BACK, 0, 0);
 						last_touch_suppressed = 1;
 					} else if (g_ui_status == 2) {
-						androidui_menu_hit hit = androidui_menu_hit_test((float) sx, (float) sy, SCREEN_W, SCREEN_H);
-						switch (hit) {
-							case ANDROIDUI_MENU_HIT_COMMUNITY:
-								queue_input_event(MH_KEY_PRESSEVENT, HAL_KEY_LEFT, 0, 0);
-								queue_input_event(MH_KEY_RELEASEEVENT, HAL_KEY_LEFT, 0, 0);
-								last_touch_suppressed = 1;
-								break;
-							case ANDROIDUI_MENU_HIT_OPTIONS:
-								queue_input_event(MH_KEY_PRESSEVENT, HAL_KEY_UP, 0, 0);
-								queue_input_event(MH_KEY_RELEASEEVENT, HAL_KEY_UP, 0, 0);
-								last_touch_suppressed = 1;
-								break;
-							case ANDROIDUI_MENU_HIT_NEWGAME:
-								queue_input_event(MH_KEY_PRESSEVENT, HAL_KEY_OK, 0, 0);
-								queue_input_event(MH_KEY_RELEASEEVENT, HAL_KEY_OK, 0, 0);
-								last_touch_suppressed = 1;
-								break;
-							case ANDROIDUI_MENU_HIT_CONTINUE:
-								queue_input_event(NEXUS_HAL_REPLY_YESNO, NEXUS_HAL_FIRST_MOVE_REPLY_PAGE, 0, 0);
-								last_touch_suppressed = 1;
-								break;
-							case ANDROIDUI_MENU_HIT_HELP:
-								queue_input_event(MH_KEY_PRESSEVENT, HAL_KEY_DOWN, 0, 0);
-								queue_input_event(MH_KEY_RELEASEEVENT, HAL_KEY_DOWN, 0, 0);
-								last_touch_suppressed = 1;
-								break;
-							case ANDROIDUI_MENU_HIT_ABOUT:
-								queue_input_event(MH_KEY_PRESSEVENT, HAL_KEY_RIGHT, 0, 0);
-								queue_input_event(MH_KEY_RELEASEEVENT, HAL_KEY_RIGHT, 0, 0);
-								last_touch_suppressed = 1;
-								break;
-							default:
-								last_touch_suppressed = 0;
-								break;
-						}
+						androidui_menu_cursor_hide();
+						last_touch_suppressed = press_menu_button(androidui_menu_hit_test((float) sx, (float) sy, SCREEN_W, SCREEN_H));
 					} else if (g_ui_status == 5 || g_ui_status == 4) {
 /**
  * @brief Natives.showTitleComponent().

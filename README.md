@@ -122,6 +122,14 @@ Controls
 |      ![trian]       | Skip / Special                          |
 |      ![trigl]       | Save                                    |
 | ![start] + ![selec] | PS Vita options menu                    |
+| ![trigr] + ![trigl] | Show / Hide on-screen buttons           |
+| ![trigr] + ![selec] | Switch 30 / 22 fps                      |
+
+### Main menu
+
+The main menu (after the title screen) can be used with buttons: the d-pad or left stick moves a
+highlight (white corners) over the six buttons, Cross presses the highlighted one. Touching the screen hides
+the highlight; the next d-pad press brings it back.
 
 ### PS Vita options menu
 
