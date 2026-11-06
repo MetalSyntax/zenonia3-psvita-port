@@ -44,9 +44,8 @@ make -j$(sysctl -n hw.ncpu)
 echo "[3/4] Exportando archivos generados..."
 mkdir -p "$PROJECT_DIR/build"
 cp "$VPK_NAME" "$PROJECT_DIR/build/$VPK_NAME"
-if [ -f "eboot.bin" ]; then
-    cp "eboot.bin" "$PROJECT_DIR/build/eboot.bin"
-fi
+# vita_create_self genera zenonia_3.self; es el mismo archivo que el VPK instala como eboot.bin
+cp "zenonia_3.self" "$PROJECT_DIR/build/eboot.bin"
 if [ -f "zenonia_3" ]; then
     cp "zenonia_3" "$PROJECT_DIR/build/zenonia_3.elf"
 fi

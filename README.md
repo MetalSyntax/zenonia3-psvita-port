@@ -94,7 +94,9 @@ ux0:data/zenonia3/
 ├── assets/          # Game assets and data (extracted from APK assets/)
 ├── drawable/        # UI images and drawables (extracted from APK res/drawable/)
 ├── html/            # Help / About HTML pages (extracted from APK assets/html/)
-├── logs/            # Debug logs created at runtime (log_<timestamp>.txt)
+├── logs/            # Debug logs created at runtime (log_001.log ... log_999.log)
+├── config.txt       # (Runtime) Port options: fps, virtual_buttons
+├── controls.txt     # (Runtime) Button bindings
 ├── sound/           # Game audio, sound effects, and music
 ├── libgameDSO.so    # Original ARMv6 native binary (from APK lib/armeabi/libgameDSO.so)
 ├── option.sav       # (Runtime) Game configuration and options save
@@ -112,15 +114,46 @@ Controls
 
 |       Button        | Action                                  |
 |:-------------------:|:----------------------------------------|
-|      ![dpadh]       | Move Left / Right                       |
-|      ![dpadv]       | Move Up / Down                          |
+| ![dpadh] / Left stick | Move Left / Right                     |
+| ![dpadv] / Left stick | Move Up / Down                        |
 |      ![cross]       | Action / Attack / OK                    |
 |      ![circl]       | Back / Cancel / Menu                    |
 |      ![squar]       | Map / Quick Item                        |
 |      ![trian]       | Skip / Special                          |
 |      ![trigl]       | Save                                    |
-| ![trigl] + ![trigr] | Show / Hide virtual on-screen buttons   |
-| ![start] + ![selec] | Quit Game                               |
+| ![start] + ![selec] | PS Vita options menu                    |
+
+### PS Vita options menu
+
+Press **Start + Select** at any time (the game is paused underneath). From there:
+
+- Remap every action: Cross replaces the buttons of the highlighted action, Square adds one more,
+  Triangle leaves it unbound. A button can only belong to one action, so it is taken off the
+  previous one. The left stick always moves, whatever the D-pad bindings are.
+- Frame rate: 30 fps (default) or 22 fps (the speed the original Android game runs at).
+- On-screen buttons: Hidden (0% opacity, default) or Visible (100%). Hidden buttons still respond
+  to touch where they normally are.
+- Restore defaults.
+
+Circle (or Start) saves and closes. Bindings go to `ux0:data/zenonia3/controls.txt`, the rest to
+`config.txt`; both can also be edited by hand:
+
+```ini
+UP = UP
+DOWN = DOWN
+LEFT = LEFT
+RIGHT = RIGHT
+OK = CROSS
+BACK = CIRCLE
+SKIP = TRIANGLE
+MAP = SQUARE
+SAVE = L1
+```
+
+Buttons: `CROSS`, `CIRCLE`, `SQUARE`, `TRIANGLE`, `L1`, `R1`, `UP`, `DOWN`, `LEFT`, `RIGHT`,
+`SELECT` and `NONE`.
+
+To quit, use the PS button.
 
 FAQ
 ----------------
@@ -212,11 +245,8 @@ are exposed as CMake options (see [CMakeLists.txt](CMakeLists.txt) for the full 
   natively.
 - **`OPTIMIZE_NEON_FIXED`** (`ON`/`OFF`) — NEON SIMD instead of a scalar loop for the Q16.16 →
   float vertex/color/texcoord conversion. Independent of `RGB565_CONVERT_MODE` above.
-- **`LOCK_FPS_30`** (`ON`/`OFF`) — caps the framerate at a stable 30fps (2 vblanks per frame,
-  vitaGL's own vsync disabled in favor of a manual `sceDisplayWaitVblankStartMulti(2)`) instead of
-  vitaGL's default single-vblank vsync. Fixes a ~40-60fps jitter that otherwise shows up whenever
-  the frame renders fast enough to land right on the vblank boundary — most notably with
-  `RGB565_CONVERT_MODE=NATIVE`.
+- The frame rate (30 / 22 fps) is no longer a build option: it is set at runtime from the
+  Start + Select menu (`config.txt`).
 
 `porting_tools/build/build_and_install.sh` (option 5 of `manage_vita.py`) asks for all three
 interactively and tags the exported VPK with the chosen combination
@@ -224,8 +254,8 @@ interactively and tags the exported VPK with the chosen combination
 compared side by side without overwriting each other.
 
 **Confirmed on real hardware as the most stable combination:** `RGB565_CONVERT_MODE=NATIVE` +
-`OPTIMIZE_NEON_FIXED=OFF` + `LOCK_FPS_30=ON` — native RGB565 texture upload (no CPU conversion),
-scalar Q16.16 conversion, and the manual 30fps cap. These are now the defaults in
+`OPTIMIZE_NEON_FIXED=OFF` — native RGB565 texture upload (no CPU conversion) and scalar Q16.16
+conversion. These are now the defaults in
 [CMakeLists.txt](CMakeLists.txt), so a plain `./build.sh` run already produces
 `build/zenonia_3.vpk` in this configuration — it's the definitive release build. Use
 `porting_tools/build/build_and_install.sh` (option 5 of `manage_vita.py`) instead if you want to

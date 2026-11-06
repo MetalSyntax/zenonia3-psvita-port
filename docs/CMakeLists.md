@@ -36,25 +36,6 @@ Explanatory and architectural design notes extracted from source code and replac
 
 ---
 
-## `CMakeLists.txt` (line ~39) (línea ~39)
-
-**Source File:** `CMakeLists.txt`
-
-> Oculta la cruceta nativa + sus hasta 5 botones de accion
-> (GVUIPlayerController, la unica instancia de esa clase en todo el juego --
-> ver decompiled_so/out_ghidra.c:28609/28466 y la nota completa en
-> loader/dynlib.c junto a zenonia_install_hide_dpad_hook()). Se hookea su
-> constructor y se pone en 0 el contador interno de "objetos activos" que
-> GVUIController::Draw()/PointerPress()/Move()/Release() usan como limite de
-> su loop -- no dibuja NI recibe touch, sin tocar ningun otro controller
-> (barra de vida/mana, minimapa, etc., cada uno con su propia instancia). La
-> Vita ya tiene D-Pad/botones fisicos mapeados 1:1 (ver btn_map en
-> loader/main.c), asi que no se pierde ninguna funcionalidad real.
-> Para reactivar la cruceta/botones en pantalla: pasar
-> -DHIDE_VIRTUAL_GAMEPAD=OFF a cmake (o cambiar el default de abajo a OFF) y
-> recompilar.
-
----
 
 ## `CMakeLists.txt` (line ~55) (línea ~55)
 
@@ -78,7 +59,7 @@ Explanatory and architectural design notes extracted from source code and replac
 >   textura corrupta/canal de color desplazado, volver a SCALAR/LUT.
 >   Default NATIVE + OPTIMIZE_NEON_FIXED=OFF abajo: confirmado en consola real
 >   como la combinacion mas estable (ver README, seccion "Performance Tuning"),
->   junto con LOCK_FPS_30=ON de mas abajo -- esta es la config que build.sh
+>   esta es la config que build.sh
 >   produce como build/zenonia_3.vpk (version final).
 
 ---
@@ -96,21 +77,6 @@ Explanatory and architectural design notes extracted from source code and replac
 
 ---
 
-## `CMakeLists.txt` (line ~102) (línea ~102)
-
-**Source File:** `CMakeLists.txt`
-
-> Con RGB565_CONVERT_MODE=NATIVE el frame renderiza tan rapido que cae justo
-> en el borde del vblank del panel (60Hz) -- el vsync interno de vitaGL (que
-> solo espera 1 vblank) da un framerate que rebota entre ~40 y ~60 en vez de
-> estabilizarse. Esta opcion apaga ese vsync (vglWaitVblankStart(GL_FALSE)
-> en gl_init()) y fuerza manualmente 2 vblanks por frame
-> (sceDisplayWaitVblankStartMulti(2) en el loop principal, main.c) -- cap
-> duro a 30fps estable y sin tearing. Inocuo con los otros modos de
-> RGB565_CONVERT_MODE (20-24fps ya medidos): si el frame ya tardo mas de 2
-> vblanks, la espera manual no hace nada, no empeora el framerate real.
-
----
 
 ## `CMakeLists.txt` (line ~118) (línea ~118)
 

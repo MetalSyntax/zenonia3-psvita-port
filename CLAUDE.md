@@ -82,13 +82,11 @@ for other ports on the same machine) rather than downgrading the submodule pin.
 
 Useful CMake options (pass as `-D...` to a manual `cmake` invocation, or edit the `option()` default in
 `CMakeLists.txt`):
-- `HIDE_VIRTUAL_GAMEPAD` (default `ON`) — hides the game's on-screen D-pad/action-button cluster at boot
-  (Vita physical buttons are already mapped 1:1). Toggling this CMake option only changes whether
-  `zenonia_install_hide_dpad_hook()` (`loader/dynlib.c`) installs its hook at all; when it's `ON`, the
-  player can still show/hide the cluster at runtime with L+R (edge-detected in `loader/main.c`'s input
-  loop, flips the same "active object count" field via `zenonia_toggle_dpad_visibility()` instead of only
-  ever zeroing it once). L alone is also mapped to Save (`btn_map`), so the L+R combo's L edge is diverted
-  away from that mapping while R is held, to avoid firing a save on every visibility toggle.
+- Frame rate (30/22 fps), on-screen button opacity (0/100%) and button bindings are runtime settings,
+  not CMake options: `loader/config.c` (`ux0:data/zenonia3/config.txt` + `controls.txt`), edited from the
+  Start + Select menu (`loader/vitamenu.c`; the game is paused while it is open). Opacity works by swapping
+  `GVUIPlayerController::Draw` in its vtable (`zenonia_install_vbuttons_hook()`, `loader/dynlib.c`), so
+  hidden buttons are still touchable.
 - `ENABLE_VERBOSE_JNI_LOG` (default `OFF`) — logs every single FalsoJNI call. Only turn on to trace a
   specific JNI call; at `FALSOJNI_DEBUGLEVEL=0` the vast majority of the log becomes `[JNI]` noise and
   boot takes minutes (each line is a blocking `sceIoOpen`+`write`+`close`). Default level 2 still logs
@@ -108,7 +106,7 @@ and run `clean_macos.sh` (strips macOS `._*` AppleDouble files, which break VPK 
 `VITA_IP` at the top of the file — update it to match the actual console's address.
 
 There is no emulator/CI test suite. Verification happens by installing the VPK on real hardware
-and reading the resulting log file (`ux0:data/zenonia3/logs/log_<timestamp>.txt`) and/or
+and reading the resulting log file (`ux0:data/zenonia3/logs/log_NNN.log`, numbered 001-999 by `logs/log_counter.txt`) and/or
 `.psp2dmp` crash dump. See the `so-crash-triage` skill for the exact cross-referencing procedure
 (log → `.psp2dmp` via `vita-parse-core` → symbol via `objdump -T` → disassembly via
 `arm-vita-eabi-objdump -M force-thumb` → matching pseudo-C in `decompiled_so/out_ghidra.c`).

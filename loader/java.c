@@ -265,7 +265,7 @@ jint Zenonia_isAssetExist(jmethodID id, va_list args) {
 }
 
 jint Zenonia_getGLOptionLinear(jmethodID id, va_list args) {
-    return 1; // 1 = filtrado lineal
+    return 0; // 0 = GL_NEAREST (glQuality), matches the forced filter in glTexImage2D_wrapper
 }
 
 void Zenonia_SetSpeed(jmethodID id, va_list args) {

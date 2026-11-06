@@ -30,13 +30,6 @@ else()
 endif()
 
 ## @brief Esto incluye el toolchain de Vita, debe ir antes de project().
-## @note See `docs/CMakeLists.md:32` for detailed design rationale.
-option(HIDE_VIRTUAL_GAMEPAD "Hide the game's on-screen D-pad + action button cluster (Dpad.pzx/illusiaDpad.pzx); physical Vita buttons are already mapped" ON)
-if (HIDE_VIRTUAL_GAMEPAD)
-  add_definitions(-DZENONIA_HIDE_DPAD_UI=1)
-endif()
-
-## @brief Esto incluye el toolchain de Vita, debe ir antes de project().
 ## @note See `docs/CMakeLists.md:39` for detailed design rationale.
 set(RGB565_CONVERT_MODE "NATIVE" CACHE STRING "RGB565->RGBA8888 conversion strategy: SCALAR, LUT, NEON o NATIVE (perf A/B test)")
 set_property(CACHE RGB565_CONVERT_MODE PROPERTY STRINGS SCALAR LUT NEON NATIVE)
@@ -57,13 +50,6 @@ endif()
 option(OPTIMIZE_NEON_FIXED "Use NEON SIMD instead of scalar division for GL_FIXED (Q16.16) vertex/color/texcoord conversion (perf A/B test)" OFF)
 if (OPTIMIZE_NEON_FIXED)
   add_definitions(-DOPTIMIZE_NEON_FIXED=1)
-endif()
-
-## @brief Esto incluye el toolchain de Vita, debe ir antes de project().
-## @note See `docs/CMakeLists.md:62` for detailed design rationale.
-option(LOCK_FPS_30 "Cap framerate at a stable 30fps (2 vblanks) instead of vitaGL's default single-vblank vsync -- fixes the ~40-60fps jitter seen with RGB565_CONVERT_MODE=NATIVE" ON)
-if (LOCK_FPS_30)
-  add_definitions(-DLOCK_FPS_30=1)
 endif()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall")
@@ -92,6 +78,8 @@ add_executable(${PROJECT_NAME}
   ./loader/htmltext.c
   ./loader/htmlview.c
   ./loader/androidui.c
+  ./loader/config.c
+  ./loader/vitamenu.c
   ./common/debugScreen.c
   ./lib/falso_jni/FalsoJNI.c
   ./lib/falso_jni/FalsoJNI_ImplBridge.c

@@ -15,7 +15,9 @@
 #include <pthread.h>
 
 #include <vitaGL.h>
+#include <kubridge.h>
 #include "so_util.h"
+#include "config.h"
 
 #if defined(OPTIMIZE_NEON_FIXED) || defined(RGB565_MODE_NEON)
 #include <arm_neon.h>
@@ -32,71 +34,36 @@ static int zenonia_verbose_ui(void) {
 }
 
 /**
- * @brief offset committed in GVUIController::GVUIController() (out_ghidra.c:26369, `memset(this+8,0,400); *(int*)(this+0x19c)=0;`) and reused.
+ * @brief On-screen D-pad + action buttons opacity (config.h: cfg_vbuttons_opacity, 0 or 100).
+ *
+ * GVUIPlayerController::Draw() (out_ghidra.c:30116) is only ever reached through the class
+ * vtable (no direct callers), so swapping that one slot hides exactly this controller's art
+ * while its PointerPress/touch handling keeps running: at 0% the buttons are invisible but
+ * still respond where they normally are. Only 0/100: the engine draws them in software into
+ * its RGB565 framebuffer, there is no per-object alpha to scale.
  */
-#ifdef ZENONIA_HIDE_DPAD_UI
-static so_hook g_player_controller_ctor_hook;
+static void (*g_player_draw_orig)(void *this);
 
-/**
- * @brief offset committed in GVUIController::GVUIController() (out_ghidra.c:26369, `memset(this+8,0,400); *(int*)(this+0x19c)=0;`) and reused.
- */
-#define GVUI_CONTROLLER_ACTIVE_COUNT_OFFSET 0x19c
-
-/**
- * @brief Instance + real (pre-zeroed) active-object count saved by the one-shot
- * ctor hook below, so zenonia_toggle_dpad_visibility() can flip the same field
- * back and forth at runtime (L+R) instead of only ever zeroing it once at boot.
- */
-static void *g_player_controller_instance = NULL;
-static int g_player_controller_real_active_count = 0;
-static volatile int g_dpad_hidden = 1;
-
-static void GVUIPlayerController_ctor_hook(void *this) {
-/**
- * @brief Call AFTER so_relocate/so_resolve (you need the module already with dynsym/dynstr resolved, see so_symbol()) and BEFORE the first call to.
- */
-    so_unhook(&g_player_controller_ctor_hook);
-    ((void (*)(void *)) g_player_controller_ctor_hook.thumb_addr)(this);
-    g_player_controller_instance = this;
-    g_player_controller_real_active_count = *(int *)((char *) this + GVUI_CONTROLLER_ACTIVE_COUNT_OFFSET);
-    *(int *)((char *) this + GVUI_CONTROLLER_ACTIVE_COUNT_OFFSET) = 0;
-    game_log("[HideDpad] GVUIPlayerController construido en %p -- contador de objetos activos puesto a 0 (Draw/touch de la cruceta y los 5 botones de accion deshabilitados)\n", this);
-}
-#endif
-
-/**
- * @brief Toggles the dpad/action-button cluster's active-object count between
- * 0 (hidden) and its real value (visible), so Draw()/PointerPress() see it as
- * empty or full without ever re-running the constructor. No-op if
- * HIDE_VIRTUAL_GAMEPAD was OFF at compile time (no hook installed, cluster was
- * never hidden) or the instance hasn't been constructed yet.
- */
-void zenonia_toggle_dpad_visibility(void) {
-#ifdef ZENONIA_HIDE_DPAD_UI
-    if (!g_player_controller_instance) return;
-    g_dpad_hidden = !g_dpad_hidden;
-    *(int *)((char *) g_player_controller_instance + GVUI_CONTROLLER_ACTIVE_COUNT_OFFSET) =
-        g_dpad_hidden ? 0 : g_player_controller_real_active_count;
-    game_log("[HideDpad] L+R -> cruceta/botones %s\n", g_dpad_hidden ? "ocultos" : "visibles");
-#endif
+static void GVUIPlayerController_Draw_hook(void *this) {
+    if (cfg_vbuttons_opacity > 0) g_player_draw_orig(this);
 }
 
-/**
- * @brief Call AFTER so_relocate/so_resolve (you need the module already with dynsym/dynstr resolved, see so_symbol()) and BEFORE the first call to.
- */
-void zenonia_install_hide_dpad_hook(so_module *mod) {
-#ifdef ZENONIA_HIDE_DPAD_UI
-    uintptr_t ctor_addr = so_symbol(mod, "_ZN20GVUIPlayerControllerC2Ev");
-    if (!ctor_addr) {
-        game_log("[HideDpad] simbolo _ZN20GVUIPlayerControllerC2Ev no encontrado -- cruceta/botones NO se ocultan\n");
+void zenonia_install_vbuttons_hook(so_module *mod) {
+    uintptr_t draw = so_symbol(mod, "_ZN20GVUIPlayerController4DrawEv");
+    uintptr_t *vtable = (uintptr_t *) so_symbol(mod, "_ZTV20GVUIPlayerController");
+    if (!draw || !vtable) {
+        game_log("[VButtons] simbolos de GVUIPlayerController no encontrados -- opacidad sin efecto\n");
         return;
     }
-    g_player_controller_ctor_hook = hook_addr(ctor_addr, (uintptr_t) GVUIPlayerController_ctor_hook);
-    so_flush_caches(mod);
-    game_log("[HideDpad] hook instalado en GVUIPlayerController::ctor (0x%08x)\n", (unsigned int) ctor_addr);
-#else
-    (void) mod;
-#endif
+    for (int i = 0; i < 32; i++) {
+        if ((vtable[i] | 1) != (draw | 1)) continue;
+        g_player_draw_orig = (void (*)(void *)) vtable[i];
+        uintptr_t hook = (uintptr_t) &GVUIPlayerController_Draw_hook;
+        kuKernelCpuUnrestrictedMemcpy(&vtable[i], &hook, sizeof(hook));
+        game_log("[VButtons] vtable[%d] de GVUIPlayerController::Draw redirigido\n", i);
+        return;
+    }
+    game_log("[VButtons] Draw no encontrado en la vtable -- opacidad sin efecto\n");
 }
 
 // Stub para __errno
@@ -240,8 +207,10 @@ void glTexImage2D_wrapper(GLenum target, GLint level, GLint internalformat, GLsi
 /**
  * @brief Force min/mag filters so that the texture is not treated as incomplete due to lack of mipmaps.
  */
-    glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    // NEAREST: the engine's only texture is its 400x240 software framebuffer, upscaled 2.4x to 960x544;
+    // LINEAR made it blurry and bled the unused texture area into the right/bottom screen edge.
+    glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) game_log("[GL] glTexImage2D ERROR: %x\n", err);

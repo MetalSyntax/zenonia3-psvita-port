@@ -19,6 +19,8 @@
 #include "so_util.h"
 #include "audio.h"
 #include "androidui.h"
+#include "config.h"
+#include "vitamenu.h"
 #include <taihen.h>
 #include <vitaGL.h>
 #include <falso_jni/FalsoJNI.h>
@@ -45,18 +47,39 @@ unsigned int sceLibcHeapSize = 4 * 1024 * 1024; // 4 MB para SCE Libc (system li
 /**
  * @brief One log file per run, with timestamp, inside logs/.
  */
+void game_log(const char *fmt, ...);
+static SceUInt64 log_t0;
+static int log_line_start = 1;
+
+/**
+ * @brief logs/log_001.log ... log_999.log, numbered by logs/log_counter.txt (wraps 999 -> 001,
+ * overwriting the oldest). Every line is prefixed with the time since boot.
+ */
 void init_log() {
     sceIoMkdir(LOG_DIR, 0777); // falla en silencio si ya existe
 
-    char log_path[256];
-    time_t t = time(NULL);
-    snprintf(log_path, sizeof(log_path), LOG_DIR "/log_%u.txt", (unsigned int) t);
-
-    log_file = fopen(log_path, "w");
-    if (log_file) {
-        fprintf(log_file, "--- ZENONIA 3 PORT LOG START (%s) ---\n", log_path);
-        fflush(log_file);
+    int n = 0;
+    FILE *c = fopen(LOG_DIR "/log_counter.txt", "r");
+    if (c) {
+        if (fscanf(c, "%d", &n) != 1) n = 0;
+        fclose(c);
     }
+    n = (n >= 1 && n < 999) ? n + 1 : 1;
+    c = fopen(LOG_DIR "/log_counter.txt", "w");
+    if (c) {
+        fprintf(c, "%d\n", n);
+        fclose(c);
+    }
+
+    char log_path[256];
+    snprintf(log_path, sizeof(log_path), LOG_DIR "/log_%03d.log", n);
+    log_t0 = sceKernelGetProcessTimeWide();
+    log_file = fopen(log_path, "w");
+
+    char date[32] = "";
+    time_t t = time(NULL);
+    strftime(date, sizeof(date), "%Y-%m-%d %H:%M:%S", localtime(&t));
+    game_log("--- ZENONIA 3 PORT LOG START (%s, %s) ---\n", log_path, date);
 }
 
 void game_log(const char *fmt, ...) {
@@ -68,7 +91,13 @@ void game_log(const char *fmt, ...) {
     va_end(list);
 
     if (log_file) {
-        fprintf(log_file, "%s", string);
+        if (log_line_start) {
+            unsigned int ms = (unsigned int) ((sceKernelGetProcessTimeWide() - log_t0) / 1000);
+            fprintf(log_file, "[%02u:%02u:%02u.%03u] ", ms / 3600000, ms / 60000 % 60, ms / 1000 % 60, ms % 1000);
+        }
+        size_t len = strlen(string);
+        log_line_start = len > 0 && string[len - 1] == '\n';
+        fputs(string, log_file);
         fflush(log_file);
     }
 }
@@ -175,18 +204,17 @@ static void queue_input_event(int type, int p1, int p2, int p3) {
     }
 }
 
-static const struct { unsigned int btn; int hal; } btn_map[] = {
-    { SCE_CTRL_UP,       HAL_KEY_UP },
-    { SCE_CTRL_DOWN,     HAL_KEY_DOWN },
-    { SCE_CTRL_LEFT,     HAL_KEY_LEFT },
-    { SCE_CTRL_RIGHT,    HAL_KEY_RIGHT },
-    { SCE_CTRL_CROSS,    HAL_KEY_OK },
-    { SCE_CTRL_CIRCLE,   HAL_KEY_BACK },
-    { SCE_CTRL_TRIANGLE, HAL_KEY_SKIP },
-    { SCE_CTRL_SQUARE,   HAL_KEY_MAP },
-    { SCE_CTRL_LTRIGGER, HAL_KEY_SAVE },
-};
-#define BTN_MAP_COUNT (sizeof(btn_map) / sizeof(btn_map[0]))
+/**
+ * @brief Actions held this frame: bound buttons (config.c) + the left stick, which always moves.
+ */
+static uint32_t actions_held(uint32_t buttons, const SceCtrlData *pad) {
+    uint32_t acts = 0;
+    for (int a = 0; a < ACT_COUNT; a++)
+        if (buttons & cfg_binds[a]) acts |= 1u << a;
+    if (pad->lx < 64) acts |= 1u << ACT_LEFT; else if (pad->lx > 192) acts |= 1u << ACT_RIGHT;
+    if (pad->ly < 64) acts |= 1u << ACT_UP;   else if (pad->ly > 192) acts |= 1u << ACT_DOWN;
+    return acts;
+}
 
 /**
  * @brief NOTE: unlike Zenonia 2, no binary patch is carried here (apply_so_patches).
@@ -194,8 +222,7 @@ static const struct { unsigned int btn; int hal; } btn_map[] = {
 
 extern volatile int g_ui_status;
 extern void zenonia_install_array_hooks(void);
-extern void zenonia_install_hide_dpad_hook(so_module *mod);
-extern void zenonia_toggle_dpad_visibility(void);
+extern void zenonia_install_vbuttons_hook(so_module *mod);
 
 static GLuint splash_tex = 0;
 
@@ -268,13 +295,18 @@ void gl_init() {
  */
     GLboolean vgl_init_ok = vglInitExtended(0, 960, 544, 6 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE);
     game_log("[GL] vglInitExtended ret=%d\n", (int) vgl_init_ok);
-#ifdef LOCK_FPS_30
-/**
- * @brief Conservative factory clocks (CPU 333MHz / bus 166MHz / GPU 111MHz).
- */
-    vglWaitVblankStart(GL_FALSE);
-#endif
     gl_active = 1;
+}
+
+/**
+ * @brief 30fps: vitaGL's display-queue thread waits 2 vblanks after each flip, so CPU work overlaps
+ * the wait (a main-thread sceDisplayWaitVblankStartMulti(2) counts from the END of the frame: any
+ * frame >16.7ms of work fell to 20fps). 22fps: what the game asks for (SetSpeed(22), the Android
+ * NexusGLThread sleeps to 1000/22 ms); not a vblank divisor, so the main loop sleeps to the period
+ * and vsync stays at 1 vblank.
+ */
+static void apply_fps(void) {
+    eglSwapInterval(0, cfg_fps == 22 ? 1 : 2);
 }
 
 /**
@@ -290,6 +322,8 @@ void raise_clocks() {
 int main() {
     raise_clocks();
     init_log();
+    config_load();
+    config_save(); // writes config.txt/controls.txt with every key, so they can be edited by hand
 	game_log("Iniciando Zenonia 3 port (SoLoader)\n");
 
 	int res = so_file_load(&zenonia3_mod, "ux0:data/zenonia3/libgameDSO.so", 0x98000000);
@@ -318,6 +352,7 @@ int main() {
 
 		game_log("SoLoader inicializado. Iniciando vitaGL...\n");
 		gl_init();
+		apply_fps();
 		game_log("vitaGL inicializado.\n");
 		log_active_frame_buf("post-gl_init");
 		audio_init();
@@ -335,7 +370,7 @@ int main() {
 		NativeResize = (void *)so_symbol(&zenonia3_mod, "Java_com_gamevil_nexus2_Natives_NativeResize");
 		NativeResumeClet = (void *)so_symbol(&zenonia3_mod, "Java_com_gamevil_nexus2_Natives_NativeResumeClet");
 		handleCletEvent = (void *)so_symbol(&zenonia3_mod, "Java_com_gamevil_nexus2_Natives_handleCletEvent");
-		zenonia_install_hide_dpad_hook(&zenonia3_mod); // ver dynlib.c -- oculta cruceta+botones de accion (HIDE_VIRTUAL_GAMEPAD)
+		zenonia_install_vbuttons_hook(&zenonia3_mod); // ver dynlib.c -- opacidad 0/100 de cruceta+botones de accion
 
 		game_log("Symbols: JNI_OnLoad=%p NativeInitDeviceInfo=%p NativeInitWithBufferSize=%p NativeRender=%p NativeResize=%p NativeResumeClet=%p handleCletEvent=%p\n",
 			(void*)Game_JNI_OnLoad, (void*)NativeInitDeviceInfo, (void*)NativeInitWithBufferSize,
@@ -361,6 +396,7 @@ int main() {
 		game_log("Iniciando Bucle Principal...\n");
 
 		sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
+		sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
 
 		SceCtrlData pad;
 		SceTouchData touch;
@@ -387,61 +423,48 @@ int main() {
 				if (gl_err != GL_NO_ERROR) game_log("[GL] glGetError=0x%04x en frame %d\n", gl_err, frame);
 			}
 
-/**< @brief The SCREEN size, not the buffer size. */
-			if ((pad.buttons & SCE_CTRL_START) && (pad.buttons & SCE_CTRL_SELECT)) break;
-
-/**< @brief The SCREEN size, not the buffer size. */
 			if (g_ui_status == UI_STATUS_EXIT) break;
 
 			unsigned int pressed = pad.buttons & ~old_buttons;
-			unsigned int released = old_buttons & ~pad.buttons;
 
 /**
- * @brief Boot sequence -- replaces the single NativeInit() Zenonia 2 (which does not exist here).
+ * @brief Start + Select opens/closes the PS Vita options menu (vitamenu.c). Buttons still held
+ * when it closes are ignored until released, so the closing Circle doesn't reach the game.
  */
-			if (g_ui_status == 4 || g_ui_status == 5) {
-				if (pad.buttons & SCE_CTRL_UP)   androidui_scroll_info_text(g_ui_status, -8.0f, SCREEN_W, SCREEN_H);
-				if (pad.buttons & SCE_CTRL_DOWN) androidui_scroll_info_text(g_ui_status,  8.0f, SCREEN_W, SCREEN_H);
-				pressed  &= ~(SCE_CTRL_UP | SCE_CTRL_DOWN);
-				released &= ~(SCE_CTRL_UP | SCE_CTRL_DOWN);
+#define MENU_COMBO (SCE_CTRL_START | SCE_CTRL_SELECT)
+			static uint32_t suppressed = 0;
+			int menu_was_open = vitamenu_active();
+			if ((pad.buttons & MENU_COMBO) == MENU_COMBO && (old_buttons & MENU_COMBO) != MENU_COMBO) {
+				if (menu_was_open) vitamenu_close(); else vitamenu_open();
+			} else if (menu_was_open) {
+				vitamenu_update(pad.buttons, pressed);
 			}
-
-/**
- * @brief L+R toggles the virtual dpad/action-button cluster on/off at runtime.
- * L alone is also mapped to HAL_KEY_SAVE (btn_map), so while R is held the L
- * press/release edge is diverted here instead of falling into the generic
- * btn_map loop below -- otherwise every toggle would also fire a save.
- */
-#define DPAD_TOGGLE_COMBO (SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER)
-			static int l_mapped_to_save = 0;
-			if ((pad.buttons & DPAD_TOGGLE_COMBO) == DPAD_TOGGLE_COMBO &&
-			    (old_buttons & DPAD_TOGGLE_COMBO) != DPAD_TOGGLE_COMBO) {
-				zenonia_toggle_dpad_visibility();
+			if (menu_was_open && !vitamenu_active()) {
+				apply_fps();
+				suppressed = pad.buttons;
 			}
-			if (pressed & SCE_CTRL_LTRIGGER) {
-				l_mapped_to_save = !(pad.buttons & SCE_CTRL_RTRIGGER);
-				if (l_mapped_to_save)
-					queue_input_event(MH_KEY_PRESSEVENT, HAL_KEY_SAVE, 0, 0);
-			}
-			if (released & SCE_CTRL_LTRIGGER) {
-				if (l_mapped_to_save)
-					queue_input_event(MH_KEY_RELEASEEVENT, HAL_KEY_SAVE, 0, 0);
-			}
-			pressed  &= ~SCE_CTRL_LTRIGGER;
-			released &= ~SCE_CTRL_LTRIGGER;
-
-			for (int i = 0; i < BTN_MAP_COUNT; i++) {
-				if (btn_map[i].btn == SCE_CTRL_LTRIGGER)
-					continue;
-				if (pressed & btn_map[i].btn)
-					queue_input_event(MH_KEY_PRESSEVENT, btn_map[i].hal, 0, 0);
-				if (released & btn_map[i].btn)
-					queue_input_event(MH_KEY_RELEASEEVENT, btn_map[i].hal, 0, 0);
-			}
+			suppressed &= pad.buttons;
 			old_buttons = pad.buttons;
 
+			// Edges of the action state, not of raw buttons: remaps, the stick and opening the menu
+			// (all actions released) all come out as plain press/release events.
+			static uint32_t old_acts = 0;
+			uint32_t acts = vitamenu_active() ? 0 : actions_held(pad.buttons & ~suppressed, &pad);
+			if (g_ui_status == 4 || g_ui_status == 5) {
+				// ABOUT/HELP: up/down scroll the port's own text view instead of reaching the engine.
+				if (acts & (1u << ACT_UP))   androidui_scroll_info_text(g_ui_status, -8.0f, SCREEN_W, SCREEN_H);
+				if (acts & (1u << ACT_DOWN)) androidui_scroll_info_text(g_ui_status,  8.0f, SCREEN_W, SCREEN_H);
+				acts &= ~((1u << ACT_UP) | (1u << ACT_DOWN));
+			}
+			for (int a = 0; a < ACT_COUNT; a++) {
+				uint32_t bit = 1u << a;
+				if ((acts ^ old_acts) & bit)
+					queue_input_event((acts & bit) ? MH_KEY_PRESSEVENT : MH_KEY_RELEASEEVENT, action_hal(a), 0, 0);
+			}
+			old_acts = acts;
+
 /**< @brief The SCREEN size, not the buffer size. */
-			if (touch.reportNum > 0) {
+			if (touch.reportNum > 0 && !vitamenu_active()) {
 				int x = touch.report[0].x * GAME_W / 1920;
 				int y = touch.report[0].y * GAME_H / 1088;
 
@@ -548,30 +571,35 @@ int main() {
 			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT);
 
-			if (handleCletEvent && eq_head != eq_tail) {
-				input_event *ev = &event_queue[eq_head];
-				eq_head = (eq_head + 1) % 16;
-				handleCletEvent(jniEnv, NULL, ev->type, ev->p1, ev->p2, ev->p3);
+			if (vitamenu_active()) {
+				// Paused: NativeRender() is not called, the game freezes under the menu.
+				vitamenu_draw(SCREEN_W, SCREEN_H);
+			} else {
+				// Drain every queued event: Android delivers input asynchronously, and the engine itself fires
+				// press+release back-to-back for event 0x1f. One-per-frame added latency and, once the 16-slot
+				// queue filled, silently dropped events (a lost RELEASE = stuck direction).
+				while (handleCletEvent && eq_head != eq_tail) {
+					input_event *ev = &event_queue[eq_head];
+					eq_head = (eq_head + 1) % 16;
+					handleCletEvent(jniEnv, NULL, ev->type, ev->p1, ev->p2, ev->p3);
+				}
+
+				if (NativeRender) NativeRender(jniEnv, NULL);
+
+				// Logo/title: the port's own splash under the Android-UI art (see androidui.c).
+				if (g_ui_status >= 0 && g_ui_status <= 1) splash_draw();
+				androidui_draw(g_ui_status, SCREEN_W, SCREEN_H);
 			}
 
-			if (NativeRender) NativeRender(jniEnv, NULL);
-
-/**
- * @brief While the engine is in logo/title (Java UI states, invisible in the native loader -- pending confirmation real status numbers of Zenonia 3).
- */
-			if (g_ui_status >= 0 && g_ui_status <= 1) splash_draw();
-
-/**
- * @brief While the engine is in logo/title (Java UI states, invisible in the native loader -- pending confirmation real status numbers of Zenonia 3).
- */
-			androidui_draw(g_ui_status, SCREEN_W, SCREEN_H);
-
-#ifdef LOCK_FPS_30
-/**
- * @brief While the engine is in logo/title (Java UI states, invisible in the native loader -- pending confirmation real status numbers of Zenonia 3).
- */
-			sceDisplayWaitVblankStartMulti(2);
-#endif
+			if (cfg_fps == 22) {
+				// Fixed 1000/22 ms period from frame to frame, like NexusGLThread; resyncs after a hitch.
+				static SceUInt64 next_frame = 0;
+				const SceUInt64 period = 1000000 / 22;
+				SceUInt64 t = sceKernelGetProcessTimeWide();
+				if (t > next_frame + period) next_frame = t;
+				next_frame += period;
+				if (next_frame > t) sceKernelDelayThread((SceUInt) (next_frame - t));
+			}
 			vglSwapBuffers(GL_FALSE);
 
 			fps_count++;
